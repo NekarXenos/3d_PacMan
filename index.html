@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Retro Raycaster Maze Game – 1-Unit Corridors with 3-Cell Segments</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: black;
+        color: white;
+      }
+      #hud {
+        position: absolute;
+        top: 5px;
+        left: 10px;
+        z-index: 2;
+        font-family: sans-serif;
+        font-size: 18px;
+      }
+      canvas {
+        display: block;
+        margin: 0 auto;
+        background: #222;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">Score: 0 | Lives: 1</div>
+    <canvas id="gameCanvas" width="1024" height="768"></canvas>
+    <script>
+      // ---------------- Global Constants & Variables ----------------
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const GAME_WIDTH = canvas.width;
+      const GAME_HEIGHT = canvas.height;
+      const FOV = Math.PI / 2.5; // 60° field of view.
+      const NUM_RAYS = GAME_WIDTH; // one ray per x-pixel.
+      const MAX_DEPTH = 30; // maximum cast distance
+
+      const MAP_WIDTH = 10;  // grid cells horizontally
+      const MAP_HEIGHT = 10; // grid cells vertically
+
+      const pelletImage = new Image();
+      pelletImage.src = 'images/pellet.png';
+
+      const redPelletImage = new Image();
+      redPelletImage.src = 'images/red_pellet.png';
+
+      const ghostImage = new Image();
+      ghostImage.src = 'images/ghost.png';
+
+      // Game state variables
+      let maze = [];
+      let pelletMap = [];
+      let player = { x: 1.5, y: 1.5, angle: 0 };
+      let ghost = { x: 0, y: 0, angle: 0 };
+      let score = 0;
+      let lives = 1;
+      let remainingPellets = 0; // Tracks uncollected pellets
+      let gameState = "playing"; // "playing" or "banner"
+      let bannerMessage = ""; // Message to display on banner
+      let bannerStartTime = 0; // Time when banner appears
+      let resetGame = true; // Whether to reset score and lives
+
+      let keys = {};
+
+      // ---------------- Utility Functions ----------------
+      function getRandomInt(min, max) {
+        return Math.floor(Math.random() * (max - min)) + min;
+      }
+
+      function mod(n, m) {
+        return ((n % m) + m) % m;
+      }
+
+      function wrappedDiff(a, b, size) {
+          let diff = ((a - b) % size + size) % size;
+          if (diff > size / 2) diff -= size;
+          return diff;
+      }
+
+      // ---------------- Maze Generation ----------------
+      function generateMaze() {
+        maze = [];
+        for (let y = 0; y < MAP_HEIGHT; y++) {
+          maze[y] = [];
+          for (let x = 0; x < MAP_WIDTH; x++) {
+            maze[y][x] = false;
+          }
+        }
+
+        const startY = getRandomInt(1, MAP_HEIGHT - 1);
+        let curX = 0;
+        let curY = startY;
+        maze[curY][curX] = true;
+
+        while (curX < MAP_WIDTH - 1) {
+          let allowed = [];
+          if (curX + 3 <= MAP_WIDTH - 1) {
+            for (let i = 0; i < 2; i++) allowed.push({ dx: 1, dy: 0 });
+          } else {
+            allowed.push({ dx: 1, dy: 0 });
+          }
+          if (curX - 3 >= 1) {
+            for (let i = 0; i < 2; i++) allowed.push({ dx: -1, dy: 0 });
+          }
+          if (curY - 3 >= 1) {
+            for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: -1 });
+          }
+          if (curY + 3 <= MAP_HEIGHT - 2) {
+            for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: 1 });
+          }
+          if (allowed.length === 0) {
+            allowed.push({ dx: 1, dy: 0 });
+          }
+          const segDir = allowed[getRandomInt(0, allowed.length)];
+
+          for (let step = 0; step < 3; step++) {
+            curX += segDir.dx;
+            curY += segDir.dy;
+            if (curY < 0) curY = 0;
+            if (curY >= MAP_HEIGHT) curY = MAP_HEIGHT - 1;
+            maze[curY][curX] = true;
+            if (curX >= MAP_WIDTH - 1) break;
+          }
+        }
+        while (curY < startY) { 
+          curY++;
+          maze[curY][curX] = true;
+        }
+        while (curY > startY) { 
+          curY--;
+          maze[curY][curX] = true;
+        }
+        maze[startY][MAP_WIDTH - 1] = true;
+
+        // Apply symmetry
+        makeSymmetric();
+      }
+
+      function makeSymmetric() {
+        const N = MAP_WIDTH; // MAP_WIDTH = MAP_HEIGHT = 10
+        const originalMaze = maze.map(row => row.slice()); // Copy the initial maze
+        for (let y = 0; y < N; y++) {
+          for (let x = 0; x < N; x++) {
+            // Compute the orbit under D4 symmetries
+            const orbitValues = [
+              //originalMaze[y][x],              // Original
+              originalMaze[N - 1 - y][x],      // Vertical mirror
+              //originalMaze[y][N - 1 - x],      // Horizontal mirror
+              //originalMaze[N - 1 - y][N - 1 - x], // 180° rotation
+              //originalMaze[x][y],              // Reflection over y=x
+              originalMaze[N - 1 - x][y],      // 270° rotation
+              //originalMaze[x][N - 1 - y],      // 90° clockwise rotation
+              //originalMaze[N - 1 - x][N - 1 - y] // Reflection over y=N-1-x
+            ];
+            // Set cell to true if any symmetric counterpart is true
+            const isCorridor = orbitValues.some(val => val);
+            maze[y][x] = isCorridor;
+          }
+        }
+      }
+
+      // ---------------- Pellet Setup ----------------
+      function generatePellets() {
+        pelletMap = [];
+        remainingPellets = 0; // Initialize pellet count
+        for (let y = 0; y < MAP_HEIGHT; y++) {
+          pelletMap[y] = [];
+          for (let x = 0; x < MAP_WIDTH; x++) {
+            if (maze[y][x]) {
+              pelletMap[y][x] = { collected: false, type: "normal" };
+              remainingPellets++; // Increment for each pellet
+            } else {
+              pelletMap[y][x] = null;
+            }
+          }
+        }
+        let redPellets = 0;
+        while (redPellets < 1) {
+          let rx = getRandomInt(0, MAP_WIDTH);
+          let ry = getRandomInt(0, MAP_HEIGHT);
+          if (pelletMap[ry][rx] && pelletMap[ry][rx].type === "normal") {
+            pelletMap[ry][rx].type = "red";
+            redPellets++;
+          }
+        }
+      }
+
+      // ---------------- Initialization ----------------
+      function initGame(resetScore = true, resetLives = true) {
+        generateMaze();
+        generatePellets();
+        let pPos = getRandomCorridorCell();
+        player.x = pPos.x;
+        player.y = pPos.y;
+        player.angle = 0;
+        let gPos = getRandomCorridorCell();
+        ghost.x = gPos.x;
+        ghost.y = gPos.y;
+        ghost.angle = Math.random() * Math.PI * 2;
+        if (resetScore) score = 0;
+        if (resetLives) lives = 1;
+        updateHUD();
+      }
+
+      function getRandomCorridorCell() {
+        let x, y;
+        do {
+          x = getRandomInt(0, MAP_WIDTH);
+          y = getRandomInt(0, MAP_HEIGHT);
+        } while (!maze[y][x]);
+        return { x: x + 0.5, y: y + 0.5 };
+      }
+
+      function updateHUD() {
+        document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`;
+      }
+
+      // ---------------- Raycasting Engine ----------------
+      function castRays() {
+          ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+          ctx.fillStyle = "#555";
+          ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT / 2);
+          ctx.fillStyle = "#333";
+          ctx.fillRect(0, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT / 2);
+
+          for (let x = 0; x < NUM_RAYS; x++) {
+              const rayAngle = player.angle - FOV / 2 + (x / NUM_RAYS) * FOV;
+              let rayX = player.x;
+              let rayY = player.y;
+              const rayDirX = Math.cos(rayAngle);
+              const rayDirY = Math.sin(rayAngle);
+              let distanceToWall = 0;
+              let hitWall = false;
+              let hitCell = null;
+              while (!hitWall && distanceToWall < MAX_DEPTH) {
+                  distanceToWall += 0.05;
+                  let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH));
+                  let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
+                  if (!maze[testY][testX]) {
+                      hitWall = true;
+                      hitCell = { x: testX, y: testY };
+                  }
+              }
+              const correctedDistance = distanceToWall * Math.cos(rayAngle - player.angle);
+              const lineHeight = Math.floor(GAME_HEIGHT / correctedDistance);
+              let wallColor;
+              if (hitCell && (hitCell.x === 0 || hitCell.x === MAP_WIDTH - 1 || hitCell.y === 0 || hitCell.y === MAP_HEIGHT - 1)) {
+                  // Red walls with distance-based fading
+                  let shade = Math.max(0, 255 - correctedDistance * 25);
+                  wallColor = `rgb(${shade}, 0, 0)`; // Fading red
+              } else {
+                  let shade = Math.max(0, 255 - correctedDistance * 25);
+                  wallColor = `rgb(${shade}, ${shade}, ${shade})`; // Fading white/gray
+              }
+              ctx.fillStyle = wallColor;
+              const lineX = x;
+              const lineY = (GAME_HEIGHT - lineHeight) / 2;
+              ctx.fillRect(lineX, lineY, 1, lineHeight);
+          }
+      }
+
+      // ---------------- Player & Ghost Movement ----------------
+      const MOVE_SPEED = 2.5;
+      const ROT_SPEED = 2.0;
+
+      function updatePlayer(dt) {
+        if (gameState !== "playing") return; // Only update during "playing" state
+
+        if (keys.ArrowLeft) player.angle -= ROT_SPEED * dt;
+        if (keys.ArrowRight) player.angle += ROT_SPEED * dt;
+        let moveStep = 0;
+        if (keys.ArrowUp) moveStep = MOVE_SPEED * dt;
+        else if (keys.ArrowDown) moveStep = -MOVE_SPEED * dt;
+        let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
+        let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
+        if (maze[Math.floor(newY)][Math.floor(newX)]) {
+            player.x = newX;
+            player.y = newY;
+        }
+
+        // Pellet collection
+        let cellX = Math.floor(player.x);
+        let cellY = Math.floor(player.y);
+        if (
+          pelletMap[cellY] &&
+          pelletMap[cellY][cellX] &&
+          !showMinimap &&
+          !pelletMap[cellY][cellX].collected
+        ) {
+          pelletMap[cellY][cellX].collected = true;
+          if (pelletMap[cellY][cellX].type === "red") lives++;
+          score += 10;
+          remainingPellets--; // Decrease pellet count
+          updateHUD();
+          if (remainingPellets === 0) {
+            gameState = "banner";
+            bannerMessage = `Score: ${score} | Lives: ${lives}`;
+            bannerStartTime = performance.now();
+            resetGame = false; // Don’t reset score or lives
+          }
+        }
+
+        // Ghost collision
+        if (
+          Math.floor(player.x) === Math.floor(ghost.x) &&
+          Math.floor(player.y) === Math.floor(ghost.y)
+        ) {
+          lives--;
+          updateHUD();
+          if (lives <= 0) {
+            gameState = "banner";
+            bannerMessage = `GAME OVER | Score: ${score}`;
+            bannerStartTime = performance.now();
+            resetGame = true; // Reset everything
+          } else {
+            gameState = "banner";
+            bannerMessage = `YOU DIED | Score: ${score}`;
+            let pPos = getRandomCorridorCell();
+            player.x = pPos.x;
+            player.y = pPos.y;
+            player.angle = 0;
+            let gPos = getRandomCorridorCell();
+            ghost.x = gPos.x;
+            ghost.y = gPos.y;
+          }
+        }
+      }
+
+      function updateGhost(dt) {
+          if (gameState !== "playing") return;
+
+          if (Math.random() < 0.02) ghost.angle = Math.random() * Math.PI * 2;
+          const ghostSpeed = MOVE_SPEED * 0.75;
+          let newX = mod(ghost.x + Math.cos(ghost.angle) * ghostSpeed * dt, MAP_WIDTH);
+          let newY = mod(ghost.y + Math.sin(ghost.angle) * ghostSpeed * dt, MAP_HEIGHT);
+          if (maze[Math.floor(newY)][Math.floor(newX)]) {
+              ghost.x = newX;
+              ghost.y = newY;
+          } else {
+              ghost.angle = Math.random() * Math.PI * 2;
+          }
+      }
+
+      function drawSprites() {
+          let spritesToDraw = [];
+
+          // Constants
+          const GAME_WIDTH = 1024;
+          const GAME_HEIGHT = 768;
+          const FOV = Math.PI / 3;
+          const RAY_STEP = 0.05; // Should match your raycasting step size
+
+          // Add pellets
+          for (let y = 0; y < MAP_HEIGHT; y++) {
+              for (let x = 0; x < MAP_WIDTH; x++) {
+                  if (pelletMap[y][x] && !pelletMap[y][x].collected) {
+                      let spriteX = x + 0.5;
+                      let spriteY = y + 0.5;
+
+                      // Calculate wrapped distance to player
+                      let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH);
+                      let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT);
+                      let distance = Math.sqrt(dx * dx + dy * dy);
+
+                      // Angle from player to sprite
+                      let angleToSprite = Math.atan2(dy, dx);
+                      let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
+
+                      // Check if sprite is within field of view
+                      if (Math.abs(relativeAngle) <= FOV / 2) {
+                          // Check if there's a clear path to the sprite
+                          let isVisible = true;
+                          let testX = player.x;
+                          let testY = player.y;
+                          let rayX = testX;
+                          let rayY = testY;
+                          const rayDirX = Math.cos(angleToSprite);
+                          const rayDirY = Math.sin(angleToSprite);
+                          
+                          let distToSprite = distance;
+                          let currentDist = 0;
+                          
+                          while (currentDist < distToSprite && isVisible) {
+                              currentDist += RAY_STEP;
+                              rayX = player.x + rayDirX * currentDist;
+                              rayY = player.y + rayDirY * currentDist;
+                              
+                              let mapX = Math.floor(mod(rayX, MAP_WIDTH));
+                              let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
+                              
+                              // If we hit a wall before reaching the sprite, it's not visible
+                              if (!maze[mapY][mapX]) {
+                                  isVisible = false;
+                              }
+                              
+                              // Stop if we've reached the sprite's position
+                              if (currentDist >= distToSprite) {
+                                  break;
+                              }
+                          }
+
+                          if (isVisible) {
+                              // Project to screen x-coordinate
+                              let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
+
+                              // Calculate screen size based on distance
+                              let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
+                              let spriteSize = 0.5;
+                              let screenSize = (spriteSize * projectionFactor) / distance;
+
+                              spritesToDraw.push({
+                                  screenX: screenX,
+                                  screenSize: screenSize,
+                                  distance: distance,
+                                  image: pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage
+                              });
+                          }
+                      }
+                  }
+              }
+          }
+
+          // Add ghost (with the same visibility check)
+          let dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH);
+          let dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT);
+          let distance = Math.sqrt(dx * dx + dy * dy);
+          let angleToSprite = Math.atan2(dy, dx);
+          let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
+
+          if (Math.abs(relativeAngle) <= FOV / 2) {
+              // Check if there's a clear path to the ghost
+              let isVisible = true;
+              let testX = player.x;
+              let testY = player.y;
+              let rayX = testX;
+              let rayY = testY;
+              const rayDirX = Math.cos(angleToSprite);
+              const rayDirY = Math.sin(angleToSprite);
+              
+              let distToSprite = distance;
+              let currentDist = 0;
+              
+              while (currentDist < distToSprite && isVisible) {
+                  currentDist += RAY_STEP;
+                  rayX = player.x + rayDirX * currentDist;
+                  rayY = player.y + rayDirY * currentDist;
+                  
+                  let mapX = Math.floor(mod(rayX, MAP_WIDTH));
+                  let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
+                  
+                  if (!maze[mapY][mapX]) {
+                      isVisible = false;
+                  }
+                  
+                  if (currentDist >= distToSprite) {
+                      break;
+                  }
+              }
+
+              if (isVisible) {
+                  let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
+                  let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
+                  let spriteSize = 1.0;
+                  let screenSize = (spriteSize * projectionFactor) / distance;
+
+                  spritesToDraw.push({
+                      screenX: screenX,
+                      screenSize: screenSize,
+                      distance: distance,
+                      image: ghostImage
+                  });
+              }
+          }
+
+          // Sort sprites by decreasing distance (farthest first)
+          spritesToDraw.sort((a, b) => b.distance - a.distance);
+
+          // Draw sprites
+          for (let sprite of spritesToDraw) {
+              if (sprite.image.complete && sprite.image.naturalWidth !== 0) {
+                  let drawX = sprite.screenX - sprite.screenSize / 2;
+                  let drawY;
+                  
+                  // Different vertical positioning for pellets vs ghost
+                  if (sprite.type === 'pellet') {
+                      // Position pellets at floor level (bottom of the wall)
+                      // We use the same calculation as the wall bottom position
+                      const wallBottom = (GAME_HEIGHT / 2) + (GAME_HEIGHT / 2 / sprite.distance);
+                      drawY = wallBottom - sprite.screenSize;
+                  } else {
+                      // Center ghost vertically (unchanged)
+                      drawY = GAME_HEIGHT / 2 - sprite.screenSize / 2;
+                  }
+                  
+                  ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize);
+              }
+          }
+      }
+      
+      
+      // ---------------- Main Game Loop ----------------
+      let lastTime = performance.now();
+      function gameLoop(currentTime) {
+        let dt = (currentTime - lastTime) / 1000;
+        lastTime = currentTime;
+
+        if (gameState === "playing") {
+            updatePlayer(dt);
+            updateGhost(dt);
+        }
+
+        castRays();      // Draw walls
+        drawSprites();    // Draw sprites
+        drawMinimap();    // Draw minimap if applicable
+
+        if (gameState === "banner") {
+          drawBanner(bannerMessage);
+          if (currentTime - bannerStartTime >= 1000) { // 1 second elapsed
+            initGame(resetGame, resetGame);
+            gameState = "playing";
+          }
+        }
+
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ---------------- Banner Display ----------------
+      function drawBanner(message) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // Semi-transparent black
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        ctx.fillStyle = "white";
+        ctx.font = "48px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(message, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+      }
+
+      // ---------------- Optional 2D Minimap ----------------
+      let showMinimap = false;
+      function drawMinimap() {
+        if (!showMinimap) return;
+        const scale = 10;
+        for (let y = 0; y < MAP_HEIGHT; y++) {
+          for (let x = 0; x < MAP_WIDTH; x++) {
+            ctx.fillStyle = maze[y][x] ? "#777" : "#000";
+            ctx.fillRect(x * scale, y * scale, scale, scale);
+            ctx.strokeStyle = "#222";
+            ctx.strokeRect(x * scale, y * scale, scale, scale);
+            if (pelletMap[y][x] && !pelletMap[y][x].collected) {
+              ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "blue";
+              ctx.fillRect(
+                x * scale + scale / 4,
+                y * scale + scale / 4,
+                scale / 2,
+                scale / 2
+              );
+            }
+          }
+        }
+        ctx.fillStyle = "yellow";
+        ctx.fillRect(
+          player.x * scale - scale / 4,
+          player.y * scale - scale / 4,
+          scale / 2,
+          scale / 2
+        );
+        ctx.fillStyle = "magenta";
+        ctx.fillRect(
+          ghost.x * scale - scale / 4,
+          ghost.y * scale - scale / 4,
+          scale / 2,
+          scale / 2
+        );
+      }
+
+      // ---------------- Keyboard Handlers ----------------
+      window.addEventListener("keydown", (e) => {
+        keys[e.key] = true;
+        if (e.key === "m" || e.key === "M") showMinimap = !showMinimap;
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.key] = false;
+      });
+
+      // ---------------- Start the Game ----------------
+      initGame();
+      requestAnimationFrame(gameLoop);
+    </script>
+  </body>
+</html>
