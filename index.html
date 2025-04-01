@@ -311,7 +311,7 @@
       function updatePlayer(dt) {
         if (gameState !== "playing") return; // Only update during "playing" state
 
-        // Turn based on left/right keys
+        // Rotate based on left/right keys
         if (keys.ArrowLeft) player.angle -= ROT_SPEED * dt;
         if (keys.ArrowRight) player.angle += ROT_SPEED * dt;
 
@@ -635,8 +635,7 @@
           e.preventDefault();
           keys[keyName] = true;
         });
-
-        // When releasing the button, set the key false
+        // When releasing the button, reset the key to false.
         button.addEventListener("touchend", (e) => {
           e.preventDefault();
           keys[keyName] = false;
@@ -645,7 +644,7 @@
           e.preventDefault();
           keys[keyName] = false;
         });
-        // Also capture touchcancel and mouseleave events
+        // Also capture touchcancel and mouseleave events.
         button.addEventListener("touchcancel", (e) => {
           e.preventDefault();
           keys[keyName] = false;
@@ -694,9 +693,26 @@
         touchStartY = null;
       }, { passive: false });
 
-      // ---------------- Start the Game ----------------
+      // ---------------- Start the Game Loop ----------------
+      // On mobile we often require a user interaction before starting the game loop.
+      function startGameLoop() {
+        // Remove these listeners once they are used.
+        window.removeEventListener("touchstart", startGameLoop);
+        window.removeEventListener("mousedown", startGameLoop);
+        requestAnimationFrame(gameLoop);
+      }
+
+      // If touch events are supported start the loop after first user interaction.
+      if ("ontouchstart" in window) {
+        window.addEventListener("touchstart", startGameLoop, { once: true });
+        window.addEventListener("mousedown", startGameLoop, { once: true });
+      } else {
+        // Otherwise, start immediately for desktop.
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ---------------- Initialize the Game ----------------
       initGame();
-      requestAnimationFrame(gameLoop);
     </script>
   </body>
 </html>
