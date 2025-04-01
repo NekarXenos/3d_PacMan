@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Retro Raycaster Maze Game – 1-Unit Corridors with 3-Cell Segments</title>
+    <title>Pac-3d -- Retro Raycaster Maze Game</title>
     <style>
       html,
       body {
@@ -11,6 +11,7 @@
         overflow: hidden;
         background: black;
         color: white;
+        height: 100%;
       }
       #hud {
         position: absolute;
@@ -25,11 +26,55 @@
         margin: 0 auto;
         background: #222;
       }
+      /* Mobile controls container */
+      #mobileControls {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: grid;
+        grid-template-areas:
+          "up up up"
+          "left down right";
+        grid-gap: 10px;
+      }
+      #mobileControls button {
+        background-color: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        font-size: 24px;
+        padding: 15px;
+        border-radius: 10px;
+        width: 60px;
+        height: 60px;
+        outline: none;
+        user-select: none;
+      }
+      #upControl {
+        grid-area: up;
+      }
+      #downControl {
+        grid-area: down;
+      }
+      #leftControl {
+        grid-area: left;
+      }
+      #rightControl {
+        grid-area: right;
+      }
     </style>
   </head>
   <body>
     <div id="hud">Score: 0 | Lives: 1</div>
     <canvas id="gameCanvas" width="1024" height="768"></canvas>
+    <!-- Mobile Control Buttons -->
+    <div id="mobileControls">
+      <button id="upControl">↑</button>
+      <button id="leftControl">←</button>
+      <button id="downControl">↓</button>
+      <button id="rightControl">→</button>
+    </div>
     <script>
       // ---------------- Global Constants & Variables ----------------
       const canvas = document.getElementById("gameCanvas");
@@ -149,14 +194,8 @@
           for (let x = 0; x < N; x++) {
             // Compute the orbit under D4 symmetries
             const orbitValues = [
-              //originalMaze[y][x],              // Original
               originalMaze[N - 1 - y][x],      // Vertical mirror
-              //originalMaze[y][N - 1 - x],      // Horizontal mirror
-              //originalMaze[N - 1 - y][N - 1 - x], // 180° rotation
-              //originalMaze[x][y],              // Reflection over y=x
-              originalMaze[N - 1 - x][y],      // 270° rotation
-              //originalMaze[x][N - 1 - y],      // 90° clockwise rotation
-              //originalMaze[N - 1 - x][N - 1 - y] // Reflection over y=N-1-x
+              originalMaze[N - 1 - x][y]       // 270° rotation
             ];
             // Set cell to true if any symmetric counterpart is true
             const isCorridor = orbitValues.some(val => val);
@@ -434,7 +473,6 @@
           let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
 
           if (Math.abs(relativeAngle) <= FOV / 2) {
-              // Check if there's a clear path to the ghost
               let isVisible = true;
               let testX = player.x;
               let testY = player.y;
@@ -489,12 +527,9 @@
                   
                   // Different vertical positioning for pellets vs ghost
                   if (sprite.type === 'pellet') {
-                      // Position pellets at floor level (bottom of the wall)
-                      // We use the same calculation as the wall bottom position
                       const wallBottom = (GAME_HEIGHT / 2) + (GAME_HEIGHT / 2 / sprite.distance);
                       drawY = wallBottom - sprite.screenSize;
                   } else {
-                      // Center ghost vertically (unchanged)
                       drawY = GAME_HEIGHT / 2 - sprite.screenSize / 2;
                   }
                   
@@ -502,7 +537,6 @@
               }
           }
       }
-      
       
       // ---------------- Main Game Loop ----------------
       let lastTime = performance.now();
@@ -586,6 +620,45 @@
       window.addEventListener("keyup", (e) => {
         keys[e.key] = false;
       });
+
+      // ---------------- Mobile Control Handlers ----------------
+      // Helper to add event listeners for both touch and mouse events.
+      function addControlListener(buttonId, keyName) {
+        const button = document.getElementById(buttonId);
+        // When pressing the button (touchstart or mousedown), set the key true
+        button.addEventListener("touchstart", (e) => {
+          e.preventDefault();
+          keys[keyName] = true;
+        });
+        button.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          keys[keyName] = true;
+        });
+
+        // When releasing the button, set the key false
+        button.addEventListener("touchend", (e) => {
+          e.preventDefault();
+          keys[keyName] = false;
+        });
+        button.addEventListener("mouseup", (e) => {
+          e.preventDefault();
+          keys[keyName] = false;
+        });
+        // Also capture touchcancel and mouseleave events
+        button.addEventListener("touchcancel", (e) => {
+          e.preventDefault();
+          keys[keyName] = false;
+        });
+        button.addEventListener("mouseleave", (e) => {
+          e.preventDefault();
+          keys[keyName] = false;
+        });
+      }
+
+      addControlListener("upControl", "ArrowUp");
+      addControlListener("downControl", "ArrowDown");
+      addControlListener("leftControl", "ArrowLeft");
+      addControlListener("rightControl", "ArrowRight");
 
       // ---------------- Start the Game ----------------
       initGame();
