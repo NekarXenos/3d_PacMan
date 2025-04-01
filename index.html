@@ -311,11 +311,12 @@
       function updatePlayer(dt) {
         if (gameState !== "playing") return; // Only update during "playing" state
 
+        // Turn based on left/right keys
         if (keys.ArrowLeft) player.angle -= ROT_SPEED * dt;
         if (keys.ArrowRight) player.angle += ROT_SPEED * dt;
-        let moveStep = 0;
-        if (keys.ArrowUp) moveStep = MOVE_SPEED * dt;
-        else if (keys.ArrowDown) moveStep = -MOVE_SPEED * dt;
+
+        // Always move forward continuously.
+        let moveStep = MOVE_SPEED * dt;
         let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
         let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
         if (maze[Math.floor(newY)][Math.floor(newX)]) {
@@ -659,6 +660,39 @@
       addControlListener("downControl", "ArrowDown");
       addControlListener("leftControl", "ArrowLeft");
       addControlListener("rightControl", "ArrowRight");
+
+      // ---------------- Mobile Swipe Handlers ----------------
+      let touchStartX = null;
+      let touchStartY = null;
+      const swipeThreshold = 30; // Minimum pixels to consider a swipe
+
+      canvas.addEventListener("touchstart", (e) => {
+        if (e.changedTouches && e.changedTouches.length > 0) {
+          touchStartX = e.changedTouches[0].pageX;
+          touchStartY = e.changedTouches[0].pageY;
+        }
+      }, { passive: false });
+
+      canvas.addEventListener("touchend", (e) => {
+        if (e.changedTouches && e.changedTouches.length > 0) {
+          const touchEndX = e.changedTouches[0].pageX;
+          const touchEndY = e.changedTouches[0].pageY;
+          const deltaX = touchEndX - touchStartX;
+          const deltaY = touchEndY - touchStartY;
+          if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
+            // Horizontal swipe detected.
+            if (deltaX > 0) {
+              // Swipe right: turn the player right by 10 degrees.
+              player.angle += (10 * Math.PI) / 180;
+            } else {
+              // Swipe left: turn the player left by 10 degrees.
+              player.angle -= (10 * Math.PI) / 180;
+            }
+          }
+        }
+        touchStartX = null;
+        touchStartY = null;
+      }, { passive: false });
 
       // ---------------- Start the Game ----------------
       initGame();
