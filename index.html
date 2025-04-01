@@ -306,7 +306,7 @@
 
       // ---------------- Player & Ghost Movement ----------------
       const MOVE_SPEED = 2.5;
-      const ROT_SPEED = 3.0;
+      const ROT_SPEED = 2.0;
 
       function updatePlayer(dt) {
         if (gameState !== "playing") return; // Only update during "playing" state
@@ -663,7 +663,7 @@
       // ---------------- Mobile Swipe Handlers ----------------
       let touchStartX = null;
       let touchStartY = null;
-      const swipeThreshold = 30; // Minimum pixels to consider a swipe
+      const swipeThreshold = 5; // Minimum pixels to consider a swipe
 
       canvas.addEventListener("touchstart", (e) => {
         if (e.changedTouches && e.changedTouches.length > 0) {
@@ -682,10 +682,10 @@
             // Horizontal swipe detected.
             if (deltaX > 0) {
               // Swipe right: turn the player right by 10 degrees.
-              player.angle += (10 * Math.PI) / 180;
+              player.angle += (30 * Math.PI) / 180;
             } else {
               // Swipe left: turn the player left by 10 degrees.
-              player.angle -= (10 * Math.PI) / 180;
+              player.angle -= (30 * Math.PI) / 180;
             }
           }
         }
