@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Pac-3d -- Dynamic Resize & Controls</title>
+    <title>Pac-3d -- Ghost Warning & Blue Walls</title>
     <style>
       html,
       body {
@@ -17,81 +17,90 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        /* Prevent text selection globally */
         user-select: none;
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
-        /* Prevent pull-to-refresh or overscroll effects */
         overscroll-behavior: none;
       }
       #hud {
         position: absolute;
         top: 5px;
         left: 10px;
-        z-index: 2;
+        z-index: 12; /* Ensure HUD is above overlay and buttons */
         font-family: sans-serif;
         font-size: 18px;
         text-shadow: 1px 1px 2px black;
+        color: white; /* Ensure text color is white */
       }
       canvas {
         display: block;
         background: #222;
         max-width: 100%;
         max-height: 100%;
-        /* Improve touch responsiveness */
         touch-action: none;
       }
-      /* Mobile controls container (Optional - can be removed if canvas controls are sufficient) */
-      #mobileControls {
-        position: fixed;
-        bottom: 15px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 10;
-        display: grid;
-        grid-template-areas:
-          ". up ."
-          "left down right";
-        grid-gap: 10px;
-        background-color: rgba(0, 0, 0, 0.3);
-        padding: 10px;
-        border-radius: 15px;
-         /* Hide if not needed */
-         /* display: none; */
-      }
-      #mobileControls button {
-        background-color: rgba(255, 255, 255, 0.2);
+
+      /* --- On-Screen Control Button Styling --- */
+      .control-button {
+        position: fixed; /* Position relative to viewport */
+        z-index: 10; /* Below HUD, above canvas potentially */
+        background-color: rgba(100, 100, 100, 0.35); /* Slightly more visible gray */
         border: 1px solid rgba(255, 255, 255, 0.4);
         color: white;
-        font-size: 20px;
-        padding: 10px;
-        border-radius: 10px;
-        width: 50px;
-        height: 50px;
+        font-size: 24px; /* Slightly larger font */
+        font-weight: bold;
+        border-radius: 50%; /* Make them circular */
+        width: 55px;  /* Adjust size */
+        height: 55px; /* Adjust size */
         outline: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 0; /* Remove padding if using flex centering */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3); /* Add subtle shadow */
+        transition: background-color 0.1s ease; /* Feedback on press */
       }
-      #upControl { grid-area: up; }
-      #downControl { grid-area: down; }
-      #leftControl { grid-area: left; }
-      #rightControl { grid-area: right; }
+      .control-button:active {
+         background-color: rgba(150, 150, 150, 0.5); /* Darker on press */
+      }
+
+      /* Individual Button Positioning */
+      #upControl {
+        top: 15px; /* Distance from top */
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      #downControl {
+        bottom: 15px; /* Distance from bottom */
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      #leftControl {
+        left: 15px; /* Distance from left */
+        top: 50%;
+        transform: translateY(-50%);
+      }
+      #rightControl {
+        right: 15px; /* Distance from right */
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
     </style>
   </head>
   <body>
     <div id="hud">Score: 0 | Lives: 1</div>
     <canvas id="gameCanvas"></canvas>
-    <!-- Keep mobile controls for now, though canvas controls are primary -->
-    <div id="mobileControls">
-      <button id="upControl">↑</button>
-      <button id="leftControl">←</button>
-      <button id="downControl">↓</button>
-      <button id="rightControl">→</button>
-    </div>
+
+    <!-- On-Screen Buttons (positioned individually via CSS) -->
+    <button id="upControl" class="control-button">↑</button>
+    <button id="leftControl" class="control-button">←</button>
+    <button id="downControl" class="control-button">↓</button>
+    <button id="rightControl" class="control-button">→</button>
+
     <script>
       // ---------------- Global Constants & Variables ----------------
       const canvas = document.getElementById("gameCanvas");
@@ -107,15 +116,21 @@
       const MAP_HEIGHT = 10;
 
       // --- Movement & Control Constants ---
-      const MOVE_SPEED = 2.0; // Base forward speed
-      const BOOST_FACTOR = 1.75; // Speed multiplier when boosting
-      const ROT_SPEED = 2.0; // Rotation speed in radians/sec
-      const MAX_TAP_TURN_ANGLE_DEG = 45; // Max instant turn from tap
+      const MOVE_SPEED = 2.0;
+      const BOOST_FACTOR = 1.75;
+      const ROT_SPEED = 2.0;
+      const MAX_TAP_TURN_ANGLE_DEG = 45;
       const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180;
-      const TAP_DURATION_THRESHOLD = 200; // ms - Max duration for a tap vs hold
-      const SWIPE_THRESHOLD = 30; // pixels - Min distance for a swipe
-      const CANVAS_SIDE_AREA_RATIO = 0.35; // % of width for left/right tap/hold zones
-      const CANVAS_VERTICAL_AREA_RATIO = 0.25; // % of height for top/bottom tap zones
+      const TAP_DURATION_THRESHOLD = 200;
+      const SWIPE_THRESHOLD = 30;
+      const CANVAS_SIDE_AREA_RATIO = 0.35;
+      const CANVAS_VERTICAL_AREA_RATIO = 0.25;
+
+      // --- Ghost Warning Constants ---
+      const GHOST_WARNING_MAX_DISTANCE = 6.0; // Max distance ghost triggers warning from behind
+      const GHOST_WARNING_PULSE_SPEED = 0.004; // Speed of the red pulse
+      const GHOST_WARNING_MIN_ALPHA = 0.05; // Minimum alpha of the overlay during pulse
+      const GHOST_WARNING_MAX_ALPHA = 0.35; // Maximum alpha of the overlay at peak pulse & closest distance
 
       // --- Image Assets (Embedded) ---
       const pelletImage = new Image();
@@ -129,8 +144,7 @@
       const ghostImage = new Image();
       //ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
       ghostImage.src = 'images/ghost.png';
-
-
+      
       // --- Game State ---
       let maze = [];
       let pelletMap = [];
@@ -147,243 +161,123 @@
 
       // --- Input State ---
       let keys = {};
-      let isBoosting = false; // Keyboard boost flag
-      let downKeyPressedLastFrame = false; // For 180 turn edge detection
+      let isBoosting = false;
+      let downKeyPressedLastFrame = false;
 
       // --- Touch State ---
-      let activeTouch = {
-          id: null,
-          startX: 0,
-          startY: 0,
-          startTime: 0,
-          currentX: 0, // Keep track for potential future use
-          currentY: 0,
-          region: 'none', // 'top', 'bottom', 'left', 'right', 'center', 'none'
-          isHolding: false
-      };
+      let activeTouch = { id: null, startX: 0, startY: 0, startTime: 0, currentX: 0, currentY: 0, region: 'none', isHolding: false };
 
-
-      // ---------------- Utility Functions ----------------
+      // ---------------- Utility Functions (No Changes) ----------------
       function getRandomInt(min, max) { return Math.floor(Math.random() * (max - min)) + min; }
       function mod(n, m) { return ((n % m) + m) % m; }
       function wrappedDiff(a, b, size) { let diff = mod(a - b, size); return diff > size / 2 ? diff - size : diff; }
 
       // ---------------- Maze Generation (No Changes) ----------------
-      function generateMaze() {
-        maze = []; for (let y = 0; y < MAP_HEIGHT; y++) { maze[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { maze[y][x] = false; } }
-        const startY = getRandomInt(1, MAP_HEIGHT - 1); let curX = 0; let curY = startY; maze[curY][curX] = true;
-        while (curX < MAP_WIDTH - 1) {
-          let allowed = [];
-          if (curX + 3 <= MAP_WIDTH - 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 1, dy: 0 }); } else { allowed.push({ dx: 1, dy: 0 }); }
-          if (curX - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: -1, dy: 0 }); }
-          if (curY - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: -1 }); }
-          if (curY + 3 <= MAP_HEIGHT - 2) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: 1 }); }
-          if (allowed.length === 0) { allowed.push({ dx: 1, dy: 0 }); }
-          const segDir = allowed[getRandomInt(0, allowed.length)];
-          for (let step = 0; step < 3; step++) { curX += segDir.dx; curY += segDir.dy; if (curY < 0) curY = 0; if (curY >= MAP_HEIGHT) curY = MAP_HEIGHT - 1; maze[curY][curX] = true; if (curX >= MAP_WIDTH - 1) break; }
-        }
-        while (curY < startY) { curY++; maze[curY][curX] = true; } while (curY > startY) { curY--; maze[curY][curX] = true; } maze[startY][MAP_WIDTH - 1] = true;
-        makeSymmetric();
-      }
-      function makeSymmetric() {
-        const N = MAP_WIDTH; const originalMaze = maze.map(row => row.slice());
-        for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { const orbitValues = [originalMaze[N - 1 - y][x], originalMaze[N - 1 - x][y]]; maze[y][x] = orbitValues.some(val => val); } }
-      }
+      function generateMaze() { /* ... same as before ... */ maze = []; for (let y = 0; y < MAP_HEIGHT; y++) { maze[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { maze[y][x] = false; } } const startY = getRandomInt(1, MAP_HEIGHT - 1); let curX = 0; let curY = startY; maze[curY][curX] = true; while (curX < MAP_WIDTH - 1) { let allowed = []; if (curX + 3 <= MAP_WIDTH - 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 1, dy: 0 }); } else { allowed.push({ dx: 1, dy: 0 }); } if (curX - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: -1, dy: 0 }); } if (curY - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: -1 }); } if (curY + 3 <= MAP_HEIGHT - 2) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: 1 }); } if (allowed.length === 0) { allowed.push({ dx: 1, dy: 0 }); } const segDir = allowed[getRandomInt(0, allowed.length)]; for (let step = 0; step < 3; step++) { curX += segDir.dx; curY += segDir.dy; if (curY < 0) curY = 0; if (curY >= MAP_HEIGHT) curY = MAP_HEIGHT - 1; maze[curY][curX] = true; if (curX >= MAP_WIDTH - 1) break; } } while (curY < startY) { curY++; maze[curY][curX] = true; } while (curY > startY) { curY--; maze[curY][curX] = true; } maze[startY][MAP_WIDTH - 1] = true; makeSymmetric(); }
+      function makeSymmetric() { /* ... same as before ... */ const N = MAP_WIDTH; const originalMaze = maze.map(row => row.slice()); for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { const orbitValues = [originalMaze[N - 1 - y][x], originalMaze[N - 1 - x][y]]; maze[y][x] = orbitValues.some(val => val); } } }
 
       // ---------------- Pellet Setup (No Changes) ----------------
-      function generatePellets() {
-        pelletMap = []; remainingPellets = 0;
-        for (let y = 0; y < MAP_HEIGHT; y++) { pelletMap[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { if (maze[y][x]) { pelletMap[y][x] = { collected: false, type: "normal" }; remainingPellets++; } else { pelletMap[y][x] = null; } } }
-        let redPellets = 0; while (redPellets < 1) { let rx = getRandomInt(0, MAP_WIDTH); let ry = getRandomInt(0, MAP_HEIGHT); if (pelletMap[ry][rx] && pelletMap[ry][rx].type === "normal") { pelletMap[ry][rx].type = "red"; redPellets++; } }
-      }
+      function generatePellets() { /* ... same as before ... */ pelletMap = []; remainingPellets = 0; for (let y = 0; y < MAP_HEIGHT; y++) { pelletMap[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { if (maze[y][x]) { pelletMap[y][x] = { collected: false, type: "normal" }; remainingPellets++; } else { pelletMap[y][x] = null; } } } let redPellets = 0; while (redPellets < 1) { let rx = getRandomInt(0, MAP_WIDTH); let ry = getRandomInt(0, MAP_HEIGHT); if (pelletMap[ry]?.[rx] && pelletMap[ry][rx].type === "normal") { pelletMap[ry][rx].type = "red"; redPellets++; } } }
 
-      // ---------------- Initialization ----------------
-      function initGame(resetScore = true, resetLives = true) {
-        generateMaze(); generatePellets();
-        let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2; // Start facing random direction
-        let gPos; do { gPos = getRandomCorridorCell(); } while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y));
-        ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2;
-        if (resetScore) score = 0; if (resetLives) lives = 1;
-        updateHUD();
-        // Reset input states
-        keys = {}; isBoosting = false; downKeyPressedLastFrame = false;
-        resetActiveTouch();
-      }
-      function getRandomCorridorCell() { let x, y; do { x = getRandomInt(0, MAP_WIDTH); y = getRandomInt(0, MAP_HEIGHT); } while (!maze[y][x]); return { x: x + 0.5, y: y + 0.5 }; }
-      function updateHUD() { document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`; }
+      // ---------------- Initialization (No Changes) ----------------
+      function initGame(resetScore = true, resetLives = true) { /* ... same as before ... */ generateMaze(); generatePellets(); let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2; let gPos; do { gPos = getRandomCorridorCell(); } while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y)); ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2; if (resetScore) score = 0; if (resetLives) lives = 1; updateHUD(); keys = {}; isBoosting = false; downKeyPressedLastFrame = false; resetActiveTouch(); }
+      function getRandomCorridorCell() { /* ... same as before ... */ let x, y; do { x = getRandomInt(0, MAP_WIDTH); y = getRandomInt(0, MAP_HEIGHT); } while (!maze[y][x]); return { x: x + 0.5, y: y + 0.5 }; }
+      function updateHUD() { /* ... same as before ... */ document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`; }
 
       // ---------------- Canvas Resizing Logic (No Changes) ----------------
-      function resizeCanvas() {
-          const winW = window.innerWidth; const winH = window.innerHeight; const isPortrait = winH > winW;
-          const minRatio = 4 / 3; const maxRatio = 16 / 9;
-          let targetRatio; let availableH = winH;
-          if (isPortrait) { targetRatio = minRatio; availableH = winH * 0.85; } else { const windowRatio = winW / winH; targetRatio = Math.max(minRatio, Math.min(maxRatio, windowRatio)); availableH = winH; }
-          let potentialW = availableH * targetRatio; let potentialH = winW / targetRatio;
-          let newWidth, newHeight;
-          if (potentialW <= winW) { newWidth = potentialW; newHeight = availableH; } else { newWidth = winW; newHeight = potentialH; }
-          newWidth = Math.min(newWidth, winW); newHeight = Math.min(newHeight, winH);
-          canvas.width = Math.floor(newWidth); canvas.height = Math.floor(newHeight);
-          gameWidth = canvas.width; gameHeight = canvas.height; numRays = gameWidth;
-      }
+      function resizeCanvas() { /* ... same as before ... */ const winW = window.innerWidth; const winH = window.innerHeight; const isPortrait = winH > winW; const minRatio = 4 / 3; const maxRatio = 16 / 9; let targetRatio; let availableH = winH; if (isPortrait) { targetRatio = minRatio; availableH = winH * 0.85; } else { const windowRatio = winW / winH; targetRatio = Math.max(minRatio, Math.min(maxRatio, windowRatio)); availableH = winH; } let potentialW = availableH * targetRatio; let potentialH = winW / targetRatio; let newWidth, newHeight; if (potentialW <= winW) { newWidth = potentialW; newHeight = availableH; } else { newWidth = winW; newHeight = potentialH; } newWidth = Math.min(newWidth, winW); newHeight = Math.min(newHeight, winH); canvas.width = Math.floor(newWidth); canvas.height = Math.floor(newHeight); gameWidth = canvas.width; gameHeight = canvas.height; numRays = gameWidth; }
 
-      // ---------------- Raycasting Engine (No Changes) ----------------
+      // ---------------- Raycasting Engine (Wall Color Change) ----------------
       function castRays() {
           ctx.clearRect(0, 0, gameWidth, gameHeight);
-          ctx.fillStyle = "#555"; ctx.fillRect(0, 0, gameWidth, gameHeight / 2);
-          ctx.fillStyle = "#333"; ctx.fillRect(0, gameHeight / 2, gameWidth, gameHeight / 2);
+          ctx.fillStyle = "#555"; ctx.fillRect(0, 0, gameWidth, gameHeight / 2); // Ceiling
+          ctx.fillStyle = "#333"; ctx.fillRect(0, gameHeight / 2, gameWidth, gameHeight / 2); // Floor
+
           for (let x = 0; x < numRays; x++) {
               const rayAngle = player.angle - FOV / 2 + (x / numRays) * FOV;
               let rayX = player.x; let rayY = player.y; const rayDirX = Math.cos(rayAngle); const rayDirY = Math.sin(rayAngle);
               let distanceToWall = 0; let hitWall = false; let hitBoundary = false;
+
               while (!hitWall && distanceToWall < MAX_DEPTH) {
                   distanceToWall += 0.05;
-                  let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH)); let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
+                  let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH));
+                  let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
+
                   if (!maze[testY][testX]) {
                       hitWall = true;
-                      let prevTestX = Math.floor(mod(rayX + rayDirX * (distanceToWall - 0.05), MAP_WIDTH)); let prevTestY = Math.floor(mod(rayY + rayDirY * (distanceToWall - 0.05), MAP_HEIGHT));
-                      if (testX !== prevTestX) { hitBoundary = (testX === 0 || testX === MAP_WIDTH - 1); } else if (testY !== prevTestY) { hitBoundary = (testY === 0 || testY === MAP_HEIGHT - 1); }
+                      let prevTestX = Math.floor(mod(rayX + rayDirX * (distanceToWall - 0.05), MAP_WIDTH));
+                      let prevTestY = Math.floor(mod(rayY + rayDirY * (distanceToWall - 0.05), MAP_HEIGHT));
+                      if (testX !== prevTestX) { hitBoundary = (testX === 0 || testX === MAP_WIDTH - 1); }
+                      else if (testY !== prevTestY) { hitBoundary = (testY === 0 || testY === MAP_HEIGHT - 1); }
                   }
               }
+
               const correctedDistance = distanceToWall * Math.cos(rayAngle - player.angle);
               const lineHeight = Math.floor(gameHeight / correctedDistance);
-              let wallColor; let shade = Math.max(0, 255 - correctedDistance * 15);
-              if (hitBoundary) { wallColor = `rgb(${shade}, 0, 0)`; } else { wallColor = `rgb(${shade}, ${shade}, ${shade})`; }
-              ctx.fillStyle = wallColor; const lineX = x; const lineY = (gameHeight - lineHeight) / 2; ctx.fillRect(lineX, lineY, 1, lineHeight);
+              let wallColor;
+              let shade = Math.max(0, 255 - correctedDistance * 15); // Fading based on distance
+
+              if (hitBoundary) {
+                  // --- CHANGE: Boundary walls are now BLUE ---
+                  wallColor = `rgb(0, 0, ${shade})`; // Blue fading to black
+              } else {
+                  // Internal walls remain gray
+                  wallColor = `rgb(${shade}, ${shade}, ${shade})`; // Gray fading to black
+              }
+
+              ctx.fillStyle = wallColor;
+              const lineX = x;
+              const lineY = (gameHeight - lineHeight) / 2;
+              ctx.fillRect(lineX, lineY, 1, lineHeight);
           }
       }
 
-      // ---------------- Player Update (Major Changes) ----------------
-      function updatePlayer(dt) {
-        if (gameState !== "playing") return;
-
-        let currentRotSpeed = 0;
-        let currentMoveSpeed = MOVE_SPEED;
-        let trigger180Turn = false;
-
-        // --- Touch Input (Continuous Hold Actions) ---
-        if (activeTouch.id !== null && activeTouch.isHolding) {
-            switch (activeTouch.region) {
-                case 'left':
-                    currentRotSpeed = -ROT_SPEED;
-                    break;
-                case 'right':
-                    currentRotSpeed = ROT_SPEED;
-                    break;
-                case 'top':
-                    isBoosting = true; // Set boost flag for movement calculation
-                    break;
-                // No continuous action for holding bottom or center
-            }
-        }
-
-        // --- Keyboard Input ---
-        if (keys.ArrowLeft) currentRotSpeed = -ROT_SPEED;
-        if (keys.ArrowRight) currentRotSpeed = ROT_SPEED;
-        if (keys.ArrowUp) isBoosting = true; // Set boost flag
-
-        // Check for 180 turn (Keyboard - Edge Triggered)
-        if (keys.ArrowDown && !downKeyPressedLastFrame) {
-            trigger180Turn = true;
-        }
-        downKeyPressedLastFrame = keys.ArrowDown; // Update for next frame
-
-        // --- Apply Rotation ---
-        if (currentRotSpeed !== 0) {
-            player.angle += currentRotSpeed * dt;
-            player.angle = mod(player.angle, Math.PI * 2);
-        }
-
-        // --- Apply 180 Turn ---
-        if (trigger180Turn) {
-            player.angle = mod(player.angle + Math.PI, Math.PI * 2);
-            // Reset flags that might conflict after turn
-            isBoosting = false;
-            if (activeTouch.id !== null) resetActiveTouch(); // Cancel touch action on turn
-        }
-
-        // --- Apply Movement (Always Forward) ---
-        if (isBoosting) {
-            currentMoveSpeed *= BOOST_FACTOR;
-        }
-        let moveStep = currentMoveSpeed * dt;
-        let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
-        let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
-
-        // Collision detection
-        if (maze[Math.floor(newY)][Math.floor(newX)]) {
-            player.x = newX;
-            player.y = newY;
-        } else {
-            // Wall Sliding
-            let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
-            if (maze[Math.floor(player.y)][Math.floor(slideX)]) {
-                 player.x = slideX;
-            } else {
-                let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
-                if (maze[Math.floor(slideY)][Math.floor(player.x)]) {
-                    player.y = slideY;
-                }
-            }
-        }
-
-        // --- Reset boost flag (it's set per frame by input) ---
-        isBoosting = false;
-
-        // --- Pellet Collection & Ghost Collision (No Changes Here) ---
-        let cellX = Math.floor(player.x); let cellY = Math.floor(player.y);
-        if (pelletMap[cellY]?.[cellX] && !showMinimap && !pelletMap[cellY][cellX].collected) {
-          pelletMap[cellY][cellX].collected = true;
-          if (pelletMap[cellY][cellX].type === "red") lives++;
-          score += 10; remainingPellets--; updateHUD();
-          if (remainingPellets === 0) { gameState = "banner"; bannerMessage = `LEVEL CLEAR! Score: ${score}`; bannerStartTime = performance.now(); resetGame = false; }
-        }
-        if (Math.floor(player.x) === Math.floor(ghost.x) && Math.floor(player.y) === Math.floor(ghost.y)) {
-          lives--; updateHUD();
-          if (lives <= 0) { gameState = "banner"; bannerMessage = `GAME OVER | Score: ${score}`; bannerStartTime = performance.now(); resetGame = true; } else { gameState = "banner"; bannerMessage = `CAUGHT! Lives: ${lives}`; bannerStartTime = performance.now(); resetGame = false; }
-          // Repositioning happens after banner display in gameLoop
-        }
-      }
-
+      // ---------------- Player Update (No Changes) ----------------
+      function updatePlayer(dt) { /* ... same as before ... */ if (gameState !== "playing") return; let currentRotSpeed = 0; let currentMoveSpeed = MOVE_SPEED; let trigger180Turn = false; if (activeTouch.id !== null && activeTouch.isHolding) { switch (activeTouch.region) { case 'left': currentRotSpeed = -ROT_SPEED; break; case 'right': currentRotSpeed = ROT_SPEED; break; case 'top': isBoosting = true; break; } } if (keys.ArrowLeft) currentRotSpeed = -ROT_SPEED; if (keys.ArrowRight) currentRotSpeed = ROT_SPEED; if (keys.ArrowUp) isBoosting = true; if (keys.ArrowDown && !downKeyPressedLastFrame) { trigger180Turn = true; } downKeyPressedLastFrame = keys.ArrowDown; if (currentRotSpeed !== 0) { player.angle += currentRotSpeed * dt; player.angle = mod(player.angle, Math.PI * 2); } if (trigger180Turn) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); isBoosting = false; if (activeTouch.id !== null) resetActiveTouch(); } if (isBoosting) { currentMoveSpeed *= BOOST_FACTOR; } let moveStep = currentMoveSpeed * dt; let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH); let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(newY)][Math.floor(newX)]) { player.x = newX; player.y = newY; } else { let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH); if (maze[Math.floor(player.y)][Math.floor(slideX)]) { player.x = slideX; } else { let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(slideY)][Math.floor(player.x)]) { player.y = slideY; } } } isBoosting = false; let cellX = Math.floor(player.x); let cellY = Math.floor(player.y); if (pelletMap[cellY]?.[cellX] && !showMinimap && !pelletMap[cellY][cellX].collected) { pelletMap[cellY][cellX].collected = true; if (pelletMap[cellY][cellX].type === "red") lives++; score += 10; remainingPellets--; updateHUD(); if (remainingPellets === 0) { gameState = "banner"; bannerMessage = `LEVEL CLEAR! Score: ${score}`; bannerStartTime = performance.now(); resetGame = false; } } if (Math.floor(player.x) === Math.floor(ghost.x) && Math.floor(player.y) === Math.floor(ghost.y)) { lives--; updateHUD(); if (lives <= 0) { gameState = "banner"; bannerMessage = `GAME OVER | Score: ${score}`; bannerStartTime = performance.now(); resetGame = true; } else { gameState = "banner"; bannerMessage = `CAUGHT! Lives: ${lives}`; bannerStartTime = performance.now(); resetGame = false; } } }
 
       // ---------------- Ghost Update (No Changes) ----------------
-      function updateGhost(dt) {
-          if (gameState !== "playing") return;
-          if (Math.random() < 0.02) { ghost.angle = Math.random() * Math.PI * 2; }
-          const ghostSpeed = MOVE_SPEED * 0.75; let moveStep = ghostSpeed * dt;
-          let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH);
-          let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT);
-          if (maze[Math.floor(newY)][Math.floor(newX)]) { ghost.x = newX; ghost.y = newY; } else { ghost.angle = Math.random() * Math.PI * 2; }
-      }
+      function updateGhost(dt) { /* ... same as before ... */ if (gameState !== "playing") return; if (Math.random() < 0.02) { ghost.angle = Math.random() * Math.PI * 2; } const ghostSpeed = MOVE_SPEED * 0.75; let moveStep = ghostSpeed * dt; let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH); let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(newY)][Math.floor(newX)]) { ghost.x = newX; ghost.y = newY; } else { ghost.angle = Math.random() * Math.PI * 2; } }
 
       // ---------------- Sprite Drawing (No Changes) ----------------
-      function drawSprites() {
-          let spritesToDraw = [];
-          for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { processSprite(x + 0.5, y + 0.5, pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage, 0.3, spritesToDraw, 'pellet'); } } }
-          processSprite(ghost.x, ghost.y, ghostImage, 0.6, spritesToDraw, 'ghost');
-          spritesToDraw.sort((a, b) => b.distance - a.distance);
-          for (let sprite of spritesToDraw) {
-              if (sprite.image.complete && sprite.image.naturalWidth !== 0) {
-                  let drawX = sprite.screenX - sprite.screenSize / 2; let drawY;
-                  const floorLevel = gameHeight / 2; const perspectiveFactor = gameHeight / (2 * sprite.distance * Math.cos(sprite.relativeAngle));
-                  if (sprite.type === 'pellet') { drawY = floorLevel + perspectiveFactor * 0.2 - sprite.screenSize / 2; } else { drawY = floorLevel + perspectiveFactor * 0.1 - sprite.screenSize / 1.5; }
-                  drawY = Math.max(0, Math.min(gameHeight - sprite.screenSize, drawY)); ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize);
-              }
-          }
-      }
-      function processSprite(spriteX, spriteY, image, baseSize, spritesToDraw, type) {
-          const RAY_STEP = 0.05; let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH); let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT); let distance = Math.sqrt(dx * dx + dy * dy); if (distance < 0.1) return;
-          let angleToSprite = Math.atan2(dy, dx); let relativeAngle = mod(angleToSprite - player.angle + Math.PI, 2 * Math.PI) - Math.PI;
-          if (Math.abs(relativeAngle) <= FOV / 2 + 0.1) {
-              let isVisible = true; const rayDirX = Math.cos(angleToSprite); const rayDirY = Math.sin(angleToSprite); let currentDist = RAY_STEP;
-              while (currentDist < distance) { let checkX = mod(player.x + rayDirX * currentDist, MAP_WIDTH); let checkY = mod(player.y + rayDirY * currentDist, MAP_HEIGHT); if (!maze[Math.floor(checkY)][Math.floor(checkX)]) { isVisible = false; break; } currentDist += RAY_STEP; }
-              if (isVisible) {
-                  const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2); let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor; let screenSize = (baseSize * projectionFactor) / (distance * Math.cos(relativeAngle));
-                  spritesToDraw.push({ screenX: screenX, screenSize: Math.max(1, screenSize), distance: distance, image: image, type: type, relativeAngle: relativeAngle });
-              }
+      function drawSprites() { /* ... same as before ... */ let spritesToDraw = []; for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { processSprite(x + 0.5, y + 0.5, pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage, 0.3, spritesToDraw, 'pellet'); } } } processSprite(ghost.x, ghost.y, ghostImage, 0.6, spritesToDraw, 'ghost'); spritesToDraw.sort((a, b) => b.distance - a.distance); for (let sprite of spritesToDraw) { if (sprite.image.complete && sprite.image.naturalWidth !== 0) { let drawX = sprite.screenX - sprite.screenSize / 2; let drawY; const floorLevel = gameHeight / 2; const perspectiveFactor = gameHeight / (2 * sprite.distance * Math.cos(sprite.relativeAngle)); if (sprite.type === 'pellet') { drawY = floorLevel + perspectiveFactor * 0.2 - sprite.screenSize / 2; } else { drawY = floorLevel + perspectiveFactor * 0.1 - sprite.screenSize / 1.5; } drawY = Math.max(0, Math.min(gameHeight - sprite.screenSize, drawY)); ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize); } } }
+      function processSprite(spriteX, spriteY, image, baseSize, spritesToDraw, type) { /* ... same as before ... */ const RAY_STEP = 0.05; let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH); let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT); let distance = Math.sqrt(dx * dx + dy * dy); if (distance < 0.1) return; let angleToSprite = Math.atan2(dy, dx); let relativeAngle = mod(angleToSprite - player.angle + Math.PI, 2 * Math.PI) - Math.PI; if (Math.abs(relativeAngle) <= FOV / 2 + 0.1) { let isVisible = true; const rayDirX = Math.cos(angleToSprite); const rayDirY = Math.sin(angleToSprite); let currentDist = RAY_STEP; while (currentDist < distance) { let checkX = mod(player.x + rayDirX * currentDist, MAP_WIDTH); let checkY = mod(player.y + rayDirY * currentDist, MAP_HEIGHT); if (!maze[Math.floor(checkY)][Math.floor(checkX)]) { isVisible = false; break; } currentDist += RAY_STEP; } if (isVisible) { const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2); let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor; let screenSize = (baseSize * projectionFactor) / (distance * Math.cos(relativeAngle)); spritesToDraw.push({ screenX: screenX, screenSize: Math.max(1, screenSize), distance: distance, image: image, type: type, relativeAngle: relativeAngle }); } } }
+
+      // ---------------- Ghost Warning Overlay Drawing (New Function) ----------------
+      function drawGhostWarningOverlay(currentTime) {
+          if (gameState !== 'playing') return; // Only show during gameplay
+
+          // Calculate vector and angle from player to ghost
+          const dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH);
+          const dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT);
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          const angleToGhost = Math.atan2(dy, dx);
+
+          // Calculate angle relative to player's view (-PI to PI)
+          const relativeAngle = mod(angleToGhost - player.angle + Math.PI, 2 * Math.PI) - Math.PI;
+
+          // Check if ghost is "behind" (outside roughly 180 degree forward view)
+          // and within warning distance
+          const isBehind = Math.abs(relativeAngle) > Math.PI / 1.9; // Slightly wider than exact 180 for feel
+          if (isBehind && distance < GHOST_WARNING_MAX_DISTANCE && distance > 0.1) { // Avoid warning if right on top
+              // Calculate intensity based on inverse distance (0 to 1)
+              const intensity = Math.max(0, Math.min(1, 1.0 - (distance / GHOST_WARNING_MAX_DISTANCE)));
+
+              // Calculate pulsing factor (0 to 1)
+              const pulseFactor = (Math.sin(currentTime * GHOST_WARNING_PULSE_SPEED) + 1) / 2;
+
+              // Calculate final alpha based on intensity and pulse
+              const finalAlpha = intensity * (GHOST_WARNING_MIN_ALPHA + pulseFactor * (GHOST_WARNING_MAX_ALPHA - GHOST_WARNING_MIN_ALPHA));
+
+              // Draw the overlay
+              ctx.save(); // Save current context state
+              ctx.fillStyle = `rgba(200, 0, 0, ${finalAlpha})`; // Red color, alpha varies
+              ctx.globalAlpha = finalAlpha; // Apply alpha globally too (can sometimes be more consistent)
+              ctx.fillRect(0, 0, gameWidth, gameHeight); // Cover the whole canvas
+              ctx.restore(); // Restore context state
           }
       }
 
-      // ---------------- Main Game Loop (Minor change for repositioning) ----------------
+      // ---------------- Main Game Loop (Call Overlay Draw) ----------------
       let lastTime = 0;
       function gameLoop(currentTime) {
           if (lastTime === 0) { lastTime = currentTime; requestAnimationFrame(gameLoop); return; }
@@ -391,18 +285,21 @@
 
           if (gameState === "playing") { updatePlayer(dt); updateGhost(dt); }
 
-          castRays(); drawSprites(); drawMinimap();
+          castRays();
+          drawSprites();
+          drawGhostWarningOverlay(currentTime); // --- Draw the warning overlay ---
+          drawMinimap();
 
           if (gameState === "banner") {
               drawBanner(bannerMessage);
               if (currentTime - bannerStartTime >= 1500) {
-                  if (resetGame) { initGame(true, true); } // Game Over reset
-                  else if (lives > 0 && remainingPellets === 0) { initGame(false, false); } // Level Clear reset
-                  else if (lives > 0) { // Caught, reposition
+                  if (resetGame) { initGame(true, true); }
+                  else if (lives > 0 && remainingPellets === 0) { initGame(false, false); }
+                  else if (lives > 0) {
                        let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2;
                        let gPos; do { gPos = getRandomCorridorCell(); } while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y));
                        ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2;
-                  } // Else (lives <= 0 after banner) will be handled by resetGame = true case
+                  }
                   gameState = "playing";
               }
           }
@@ -410,184 +307,29 @@
       }
 
       // ---------------- Banner & Minimap Drawing (No Changes) ----------------
-      function drawBanner(message) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, gameWidth, gameHeight); ctx.fillStyle = "white";
-        const fontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 20))); ctx.font = `${fontSize}px sans-serif`;
-        ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(message, gameWidth / 2, gameHeight / 2);
-      }
-      function drawMinimap() {
-        if (!showMinimap) return; const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT)); const mapOffsetX = 10; const mapOffsetY = 10; if (scale < 1) return;
-        ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4);
-        for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale); if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue"; ctx.fillRect(mapOffsetX + x * scale + scale * 0.3, mapOffsetY + y * scale + scale * 0.3, scale * 0.4, scale * 0.4); } } }
-        ctx.fillStyle = "yellow"; ctx.fillRect(mapOffsetX + player.x * scale - scale * 0.25, mapOffsetY + player.y * scale - scale * 0.25, scale * 0.5, scale * 0.5);
-        ctx.fillStyle = "magenta"; ctx.fillRect(mapOffsetX + ghost.x * scale - scale * 0.25, mapOffsetY + ghost.y * scale - scale * 0.25, scale * 0.5, scale * 0.5);
-      }
+      function drawBanner(message) { /* ... same as before ... */ ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, gameWidth, gameHeight); ctx.fillStyle = "white"; const fontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 20))); ctx.font = `${fontSize}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(message, gameWidth / 2, gameHeight / 2); }
+      function drawMinimap() { /* ... same as before ... */ if (!showMinimap) return; const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT)); const mapOffsetX = 10; const mapOffsetY = 10; if (scale < 1) return; ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4); for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale); if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue"; ctx.fillRect(mapOffsetX + x * scale + scale * 0.3, mapOffsetY + y * scale + scale * 0.3, scale * 0.4, scale * 0.4); } } } ctx.fillStyle = "yellow"; ctx.fillRect(mapOffsetX + player.x * scale - scale * 0.25, mapOffsetY + player.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); ctx.fillStyle = "magenta"; ctx.fillRect(mapOffsetX + ghost.x * scale - scale * 0.25, mapOffsetY + ghost.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); }
 
-      // ---------------- Input Handlers (Major Changes) ----------------
-
+      // ---------------- Input Handlers (No Changes needed in JS logic) ----------------
       // --- Keyboard Handlers ---
-      window.addEventListener("keydown", (e) => {
-        // Don't process keys if a text input is focused, etc.
-        // if (e.target !== document.body && e.target !== canvas) return;
+      window.addEventListener("keydown", (e) => { /* ... same as before ... */ keys[e.key] = true; if (e.key === "m" || e.key === "M") showMinimap = !showMinimap; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) { e.preventDefault(); } });
+      window.addEventListener("keyup", (e) => { /* ... same as before ... */ keys[e.key] = false; if (e.key === 'ArrowDown') { downKeyPressedLastFrame = false; } });
 
-        keys[e.key] = true;
-        if (e.key === "m" || e.key === "M") showMinimap = !showMinimap;
-        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
-            e.preventDefault(); // Prevent page scrolling
-        }
-      });
-      window.addEventListener("keyup", (e) => {
-        keys[e.key] = false;
-        if (e.key === 'ArrowDown') {
-            downKeyPressedLastFrame = false; // Ensure flag is reset on keyup too
-        }
-      });
-
-      // --- Mobile Control Button Handlers (Optional - Link to keys state) ---
-      function addControlListener(buttonId, keyName) {
-        const button = document.getElementById(buttonId);
-        if (!button) return; // Check if element exists
-        button.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; }, { passive: false });
-        button.addEventListener("mousedown", (e) => { e.preventDefault(); keys[keyName] = true; });
-        button.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; });
-        button.addEventListener("mouseup", (e) => { e.preventDefault(); keys[keyName] = false; });
-        button.addEventListener("touchcancel", (e) => { e.preventDefault(); keys[keyName] = false; });
-        button.addEventListener("mouseleave", (e) => { if(e.buttons !== 1) keys[keyName] = false; }); // Only release if mouse button is up
-      }
+      // --- Mobile Control Button Linker ---
+      function addControlListener(buttonId, keyName) { /* ... same as before ... */ const button = document.getElementById(buttonId); if (!button) return; button.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; }, { passive: false }); button.addEventListener("mousedown", (e) => { e.preventDefault(); keys[keyName] = true; }); button.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("mouseup", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("touchcancel", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("mouseleave", (e) => { if(e.buttons !== 1) keys[keyName] = false; }); }
       addControlListener("upControl", "ArrowUp");
       addControlListener("downControl", "ArrowDown");
       addControlListener("leftControl", "ArrowLeft");
       addControlListener("rightControl", "ArrowRight");
 
       // --- Canvas Touch Handlers ---
-      function getTouchRegion(x, y) {
-          const rect = canvas.getBoundingClientRect();
-          const relativeX = x - rect.left;
-          const relativeY = y - rect.top;
-          const canvasW = rect.width; // Use actual displayed width
-          const canvasH = rect.height;
-
-          const sideWidth = canvasW * CANVAS_SIDE_AREA_RATIO;
-          const verticalHeight = canvasH * CANVAS_VERTICAL_AREA_RATIO;
-
-          if (relativeY < verticalHeight) return 'top';
-          if (relativeY > canvasH - verticalHeight) return 'bottom';
-          if (relativeX < sideWidth) return 'left';
-          if (relativeX > canvasW - sideWidth) return 'right';
-          return 'center'; // Or 'none' if center taps should do nothing
-      }
-
-      function resetActiveTouch() {
-          activeTouch.id = null;
-          activeTouch.region = 'none';
-          activeTouch.isHolding = false;
-      }
-
-      canvas.addEventListener("touchstart", (e) => {
-          e.preventDefault();
-          // Only handle the first touch for simplicity
-          if (activeTouch.id === null && e.changedTouches.length > 0) {
-              const touch = e.changedTouches[0];
-              activeTouch.id = touch.identifier;
-              activeTouch.startX = touch.pageX;
-              activeTouch.startY = touch.pageY;
-              activeTouch.currentX = touch.pageX;
-              activeTouch.currentY = touch.pageY;
-              activeTouch.startTime = performance.now();
-              activeTouch.region = getTouchRegion(touch.clientX, touch.clientY);
-              activeTouch.isHolding = true; // Assume holding initially
-          }
-      }, { passive: false });
-
-      canvas.addEventListener("touchmove", (e) => {
-          e.preventDefault();
-          if (activeTouch.id !== null) {
-              for (let i = 0; i < e.changedTouches.length; i++) {
-                  const touch = e.changedTouches[i];
-                  if (touch.identifier === activeTouch.id) {
-                      activeTouch.currentX = touch.pageX;
-                      activeTouch.currentY = touch.pageY;
-                      // Optional: Check if touch moved out of original region and cancel hold?
-                      // const currentRegion = getTouchRegion(touch.clientX, touch.clientY);
-                      // if (currentRegion !== activeTouch.region) {
-                      //     resetActiveTouch();
-                      // }
-                      break;
-                  }
-              }
-          }
-      }, { passive: false });
-
-      function handleTouchEnd(touch) {
-          if (touch.identifier !== activeTouch.id) return; // Not the touch we are tracking
-
-          const touchEndX = touch.pageX;
-          const touchEndY = touch.pageY;
-          const deltaX = touchEndX - activeTouch.startX;
-          const deltaY = touchEndY - activeTouch.startY;
-          const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-          const duration = performance.now() - activeTouch.startTime;
-
-          const region = activeTouch.region; // Use the region determined at touchstart
-
-          // --- Determine Action: Tap, Swipe, or Hold Release ---
-          if (duration < TAP_DURATION_THRESHOLD && distance < SWIPE_THRESHOLD) {
-              // --- TAP ACTION ---
-              if (region === 'bottom') {
-                  // Trigger 180 turn on tap bottom
-                  player.angle = mod(player.angle + Math.PI, Math.PI * 2);
-              } else if (region === 'left' || region === 'right') {
-                  // Original Tap-to-Turn (Instant)
-                  const rect = canvas.getBoundingClientRect();
-                  const tapX = touch.clientX - rect.left;
-                  const normalizedX = (tapX / rect.width) * 2 - 1;
-                  const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE;
-                  player.angle += turnAmount;
-                  player.angle = mod(player.angle, Math.PI * 2);
-              }
-              // No specific TAP action for top or center defined here
-          } else if (distance >= SWIPE_THRESHOLD) {
-               // --- SWIPE ACTION ---
-               // Prioritize vertical swipes for up/down actions
-               if (Math.abs(deltaY) > Math.abs(deltaX)) {
-                   if (deltaY > 0) { // Swipe Down
-                       player.angle = mod(player.angle + Math.PI, Math.PI * 2);
-                   } else { // Swipe Up
-                       // Optional: Trigger a short boost on swipe up?
-                       // isBoosting = true; // Might feel abrupt
-                   }
-               }
-               // Horizontal swipes currently do nothing specific on release
-               // (hold-turning covers continuous horizontal control)
-          }
-          // --- HOLD RELEASE --- (Handled by resetting the activeTouch state)
-
-          resetActiveTouch(); // Reset state after processing touch end
-      }
-
-      canvas.addEventListener("touchend", (e) => {
-          e.preventDefault();
-          if (activeTouch.id !== null) {
-              for (let i = 0; i < e.changedTouches.length; i++) {
-                  handleTouchEnd(e.changedTouches[i]);
-              }
-          }
-      }, { passive: false });
-
-      canvas.addEventListener("touchcancel", (e) => {
-          e.preventDefault();
-           if (activeTouch.id !== null) {
-              for (let i = 0; i < e.changedTouches.length; i++) {
-                  // Treat cancel like touchend for resetting state
-                  if (e.changedTouches[i].identifier === activeTouch.id) {
-                     resetActiveTouch();
-                     break;
-                  }
-              }
-          }
-      }, { passive: false });
-
-      // Prevent context menu on long press
+      function getTouchRegion(x, y) { /* ... same as before ... */ const rect = canvas.getBoundingClientRect(); const relativeX = x - rect.left; const relativeY = y - rect.top; const canvasW = rect.width; const canvasH = rect.height; const sideWidth = canvasW * CANVAS_SIDE_AREA_RATIO; const verticalHeight = canvasH * CANVAS_VERTICAL_AREA_RATIO; if (relativeY < verticalHeight) return 'top'; if (relativeY > canvasH - verticalHeight) return 'bottom'; if (relativeX < sideWidth) return 'left'; if (relativeX > canvasW - sideWidth) return 'right'; return 'center'; }
+      function resetActiveTouch() { /* ... same as before ... */ activeTouch.id = null; activeTouch.region = 'none'; activeTouch.isHolding = false; }
+      canvas.addEventListener("touchstart", (e) => { /* ... same as before ... */ e.preventDefault(); if (activeTouch.id === null && e.changedTouches.length > 0) { const touch = e.changedTouches[0]; activeTouch.id = touch.identifier; activeTouch.startX = touch.pageX; activeTouch.startY = touch.pageY; activeTouch.currentX = touch.pageX; activeTouch.currentY = touch.pageY; activeTouch.startTime = performance.now(); activeTouch.region = getTouchRegion(touch.clientX, touch.clientY); activeTouch.isHolding = true; } }, { passive: false });
+      canvas.addEventListener("touchmove", (e) => { /* ... same as before ... */ e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { const touch = e.changedTouches[i]; if (touch.identifier === activeTouch.id) { activeTouch.currentX = touch.pageX; activeTouch.currentY = touch.pageY; break; } } } }, { passive: false });
+      function handleTouchEnd(touch) { /* ... same as before ... */ if (touch.identifier !== activeTouch.id) return; const touchEndX = touch.pageX; const touchEndY = touch.pageY; const deltaX = touchEndX - activeTouch.startX; const deltaY = touchEndY - activeTouch.startY; const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY); const duration = performance.now() - activeTouch.startTime; const region = activeTouch.region; if (duration < TAP_DURATION_THRESHOLD && distance < SWIPE_THRESHOLD) { if (region === 'bottom') { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } else if (region === 'left' || region === 'right') { const rect = canvas.getBoundingClientRect(); const tapX = touch.clientX - rect.left; const normalizedX = (tapX / rect.width) * 2 - 1; const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE; player.angle += turnAmount; player.angle = mod(player.angle, Math.PI * 2); } } else if (distance >= SWIPE_THRESHOLD) { if (Math.abs(deltaY) > Math.abs(deltaX)) { if (deltaY > 0) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } } } resetActiveTouch(); }
+      canvas.addEventListener("touchend", (e) => { /* ... same as before ... */ e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { handleTouchEnd(e.changedTouches[i]); } } }, { passive: false });
+      canvas.addEventListener("touchcancel", (e) => { /* ... same as before ... */ e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === activeTouch.id) { resetActiveTouch(); break; } } } }, { passive: false });
       canvas.addEventListener('contextmenu', e => e.preventDefault());
 
       // ---------------- Start the Game ----------------
