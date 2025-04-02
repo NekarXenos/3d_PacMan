@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Ensure proper viewport scaling on mobile -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Pac-3d -- Retro Raycaster Maze Game</title>
     <style>
       html,
@@ -12,6 +14,11 @@
         background: black;
         color: white;
         height: 100%;
+        width: 100%;
+        /* Use Flexbox to center the canvas */
+        display: flex;
+        align-items: center; /* Vertical center */
+        justify-content: center; /* Horizontal center */
       }
       #hud {
         position: absolute;
@@ -20,54 +27,61 @@
         z-index: 2;
         font-family: sans-serif;
         font-size: 18px;
+        /* Ensure HUD is readable on any background */
+        text-shadow: 1px 1px 2px black;
       }
       canvas {
-        display: block;
-        margin: 0 auto;
+        display: block; /* Necessary for flex centering */
+        /* margin: 0 auto; No longer needed with flexbox */
         background: #222;
+        /* Optional: Add a max-width/max-height if needed,
+           but the JS logic should handle fitting */
+        max-width: 100%;
+        max-height: 100%;
       }
       /* Mobile controls container */
       #mobileControls {
         position: fixed;
-        bottom: 20px;
+        bottom: 15px; /* Adjust position slightly */
         left: 50%;
         transform: translateX(-50%);
         z-index: 10;
         display: grid;
         grid-template-areas:
-          "up up up"
-          "left down right";
+          ". up ."
+          "left down right"; /* Centered layout */
         grid-gap: 10px;
+        /* Add some transparency */
+        background-color: rgba(0, 0, 0, 0.3);
+        padding: 10px;
+        border-radius: 15px;
       }
       #mobileControls button {
         background-color: rgba(255, 255, 255, 0.2);
-        border: none;
+        border: 1px solid rgba(255, 255, 255, 0.4);
         color: white;
-        font-size: 24px;
-        padding: 15px;
+        font-size: 20px; /* Slightly smaller */
+        padding: 10px; /* Adjust padding */
         border-radius: 10px;
-        width: 60px;
-        height: 60px;
+        width: 50px;  /* Adjust size */
+        height: 50px; /* Adjust size */
         outline: none;
-        user-select: none;
+        user-select: none; /* Prevent text selection */
+        -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+        display: flex; /* Center icon */
+        align-items: center;
+        justify-content: center;
       }
-      #upControl {
-        grid-area: up;
-      }
-      #downControl {
-        grid-area: down;
-      }
-      #leftControl {
-        grid-area: left;
-      }
-      #rightControl {
-        grid-area: right;
-      }
+      #upControl { grid-area: up; }
+      #downControl { grid-area: down; }
+      #leftControl { grid-area: left; }
+      #rightControl { grid-area: right; }
     </style>
   </head>
   <body>
     <div id="hud">Score: 0 | Lives: 1</div>
-    <canvas id="gameCanvas" width="1024" height="768"></canvas>
+    <!-- Remove fixed width/height attributes -->
+    <canvas id="gameCanvas"></canvas>
     <!-- Mobile Control Buttons -->
     <div id="mobileControls">
       <button id="upControl">↑</button>
@@ -80,25 +94,29 @@
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
 
-      const GAME_WIDTH = canvas.width;
-      const GAME_HEIGHT = canvas.height;
-      const FOV = Math.PI / 2.5; // 60° field of view.
-      const NUM_RAYS = GAME_WIDTH; // one ray per x-pixel.
+      // Make game dimensions dynamic
+      let gameWidth;
+      let gameHeight;
+      let numRays; // Number of rays, will be tied to gameWidth
+
+      const FOV = Math.PI / 2.5; // 72° field of view. (Adjusted slightly from 60)
       const MAX_DEPTH = 30; // maximum cast distance
 
       const MAP_WIDTH = 10;  // grid cells horizontally
       const MAP_HEIGHT = 10; // grid cells vertically
 
       const pelletImage = new Image();
-      pelletImage.src = 'images/pellet.png';
-
+      //pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII='; // Embedded blue pellet
+      pelletImage.src = 'images/pellet.png'
+      
       const redPelletImage = new Image();
-      redPelletImage.src = 'images/red_pellet.png';
+      //redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII='; // Embedded red pellet
+      redPelletImage.src = 'images/red_pellet.png'
 
       const ghostImage = new Image();
-      ghostImage.src = 'images/ghost.png';
+      //ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII='; // Embedded simple ghost
+      ghostImage.src = 'images/ghost.png'
 
-      
       const MAX_TAP_TURN_ANGLE_DEG = 45; // Maximum turn angle in degrees
       const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180; // Convert to radians
 
@@ -133,6 +151,7 @@
       }
 
       // ---------------- Maze Generation ----------------
+      // (Maze generation functions remain the same)
       function generateMaze() {
         maze = [];
         for (let y = 0; y < MAP_HEIGHT; y++) {
@@ -177,11 +196,11 @@
             if (curX >= MAP_WIDTH - 1) break;
           }
         }
-        while (curY < startY) { 
+        while (curY < startY) {
           curY++;
           maze[curY][curX] = true;
         }
-        while (curY > startY) { 
+        while (curY > startY) {
           curY--;
           maze[curY][curX] = true;
         }
@@ -207,9 +226,9 @@
           }
         }
       }
-
       // ---------------- Pellet Setup ----------------
-      function generatePellets() {
+      // (generatePellets function remains the same)
+       function generatePellets() {
         pelletMap = [];
         remainingPellets = 0; // Initialize pellet count
         for (let y = 0; y < MAP_HEIGHT; y++) {
@@ -264,46 +283,131 @@
         document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`;
       }
 
+      // ---------------- Canvas Resizing Logic ----------------
+      function resizeCanvas() {
+          const winW = window.innerWidth;
+          const winH = window.innerHeight;
+          const isPortrait = winH > winW;
+
+          const minRatio = 4 / 3;
+          const maxRatio = 16 / 9;
+
+          let targetRatio;
+          let availableH = winH;
+
+          if (isPortrait) {
+              targetRatio = minRatio; // Force 4:3 landscape in portrait
+              // Leave some space at the bottom (e.g., 10% or fixed pixels for controls)
+              availableH = winH * 0.85; // Use 85% of height to leave space
+          } else {
+              // Landscape: Use window ratio, clamped between 4:3 and 16:9
+              const windowRatio = winW / winH;
+              targetRatio = Math.max(minRatio, Math.min(maxRatio, windowRatio));
+              availableH = winH; // Use full height in landscape
+          }
+
+          // Calculate dimensions based on target ratio and available space
+          let potentialW = availableH * targetRatio;
+          let potentialH = winW / targetRatio;
+
+          let newWidth, newHeight;
+
+          // Choose the dimension set that fits within the available space
+          if (potentialW <= winW) {
+              // Width calculated from height fits
+              newWidth = potentialW;
+              newHeight = availableH;
+          } else {
+              // Height calculated from width fits (or is the only option)
+              newWidth = winW;
+              newHeight = potentialH;
+          }
+
+          // Ensure final dimensions don't exceed the *original* window dimensions
+          // (This prevents minor overflows due to the availableH adjustment in portrait)
+          newWidth = Math.min(newWidth, winW);
+          newHeight = Math.min(newHeight, winH);
+
+
+          // Apply the calculated dimensions (use integers)
+          canvas.width = Math.floor(newWidth);
+          canvas.height = Math.floor(newHeight);
+
+          // Update global game dimension variables
+          gameWidth = canvas.width;
+          gameHeight = canvas.height;
+          numRays = gameWidth; // Update number of rays based on new width
+
+          // Optional: Log the new dimensions and ratio for debugging
+          // console.log(`Resized to: ${gameWidth}x${gameHeight}, Ratio: ${gameWidth/gameHeight}`);
+      }
+
       // ---------------- Raycasting Engine ----------------
       function castRays() {
-          ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-          ctx.fillStyle = "#555";
-          ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT / 2);
-          ctx.fillStyle = "#333";
-          ctx.fillRect(0, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT / 2);
+          // Use dynamic gameWidth and gameHeight
+          ctx.clearRect(0, 0, gameWidth, gameHeight);
+          // Draw Floor and Ceiling
+          ctx.fillStyle = "#555"; // Ceiling
+          ctx.fillRect(0, 0, gameWidth, gameHeight / 2);
+          ctx.fillStyle = "#333"; // Floor
+          ctx.fillRect(0, gameHeight / 2, gameWidth, gameHeight / 2);
 
-          for (let x = 0; x < NUM_RAYS; x++) {
-              const rayAngle = player.angle - FOV / 2 + (x / NUM_RAYS) * FOV;
+          // Use dynamic numRays
+          for (let x = 0; x < numRays; x++) {
+              const rayAngle = player.angle - FOV / 2 + (x / numRays) * FOV;
               let rayX = player.x;
               let rayY = player.y;
               const rayDirX = Math.cos(rayAngle);
               const rayDirY = Math.sin(rayAngle);
               let distanceToWall = 0;
               let hitWall = false;
-              let hitCell = null;
+              let hitBoundary = false; // To check if wall hit was on map edge
+
               while (!hitWall && distanceToWall < MAX_DEPTH) {
-                  distanceToWall += 0.05;
+                  distanceToWall += 0.05; // Increment distance
                   let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH));
                   let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
+
+                  // Check if the test point is outside the maze boundaries (a wall)
                   if (!maze[testY][testX]) {
                       hitWall = true;
-                      hitCell = { x: testX, y: testY };
+
+                      // Check if the hit wall is on the boundary of the map
+                      // Need to check the *previous* step slightly to determine which wall face was hit
+                      let prevTestX = Math.floor(mod(rayX + rayDirX * (distanceToWall - 0.05), MAP_WIDTH));
+                      let prevTestY = Math.floor(mod(rayY + rayDirY * (distanceToWall - 0.05), MAP_HEIGHT));
+
+                      // If the x-coord changed, it hit a vertical wall (left/right edge of cell)
+                      // If the y-coord changed, it hit a horizontal wall (top/bottom edge of cell)
+                      if (testX !== prevTestX) { // Hit vertical wall face
+                          hitBoundary = (testX === 0 || testX === MAP_WIDTH - 1);
+                      } else if (testY !== prevTestY) { // Hit horizontal wall face
+                          hitBoundary = (testY === 0 || testY === MAP_HEIGHT - 1);
+                      }
                   }
               }
+
+              // Fish-eye correction
               const correctedDistance = distanceToWall * Math.cos(rayAngle - player.angle);
-              const lineHeight = Math.floor(GAME_HEIGHT / correctedDistance);
+              // Use dynamic gameHeight
+              const lineHeight = Math.floor(gameHeight / correctedDistance);
+
+              // Wall Color based on boundary and distance
               let wallColor;
-              if (hitCell && (hitCell.x === 0 || hitCell.x === MAP_WIDTH - 1 || hitCell.y === 0 || hitCell.y === MAP_HEIGHT - 1)) {
-                  // Red walls with distance-based fading
-                  let shade = Math.max(0, 255 - correctedDistance * 25);
-                  wallColor = `rgb(${shade}, 0, 0)`; // Fading red
+              let shade = Math.max(0, 255 - correctedDistance * 15); // Adjusted shading factor
+              if (hitBoundary) {
+                  // Red walls for map boundaries, with distance fading
+                  wallColor = `rgb(${shade}, 0, 0)`;
               } else {
-                  let shade = Math.max(0, 255 - correctedDistance * 25);
-                  wallColor = `rgb(${shade}, ${shade}, ${shade})`; // Fading white/gray
+                  // Gray walls for internal maze walls, with distance fading
+                  wallColor = `rgb(${shade}, ${shade}, ${shade})`;
               }
+
               ctx.fillStyle = wallColor;
               const lineX = x;
-              const lineY = (GAME_HEIGHT - lineHeight) / 2;
+              // Use dynamic gameHeight
+              const lineY = (gameHeight - lineHeight) / 2;
+              // Draw the wall slice (width is 1 because numRays = gameWidth)
               ctx.fillRect(lineX, lineY, 1, lineHeight);
           }
       }
@@ -319,14 +423,35 @@
         if (keys.ArrowLeft) player.angle -= ROT_SPEED * dt;
         if (keys.ArrowRight) player.angle += ROT_SPEED * dt;
 
-        // Always move forward continuously.
-        let moveStep = MOVE_SPEED * dt;
-        let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
-        let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
-        if (maze[Math.floor(newY)][Math.floor(newX)]) {
-            player.x = newX;
-            player.y = newY;
+        // Move based on up/down keys (or always forward if desired)
+        let moveDirection = 0;
+        if (keys.ArrowUp) moveDirection = 1;
+        // if (keys.ArrowDown) moveDirection = -1; // Optional backward movement
+
+        if (moveDirection !== 0) {
+          let moveStep = moveDirection * MOVE_SPEED * dt;
+          let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
+          let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
+          // Collision detection: Check the target cell
+          if (maze[Math.floor(newY)][Math.floor(newX)]) {
+              player.x = newX;
+              player.y = newY;
+          } else {
+              // Optional: Allow sliding along walls - more complex
+              // Try moving only on X axis
+              let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
+              if (maze[Math.floor(player.y)][Math.floor(slideX)]) {
+                   player.x = slideX;
+              } else {
+                  // Try moving only on Y axis
+                  let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
+                  if (maze[Math.floor(slideY)][Math.floor(player.x)]) {
+                      player.y = slideY;
+                  }
+              }
+          }
         }
+
 
         // Pellet collection
         let cellX = Math.floor(player.x);
@@ -334,7 +459,7 @@
         if (
           pelletMap[cellY] &&
           pelletMap[cellY][cellX] &&
-          !showMinimap &&
+          !showMinimap && // Only collect if minimap is off (original logic)
           !pelletMap[cellY][cellX].collected
         ) {
           pelletMap[cellY][cellX].collected = true;
@@ -344,9 +469,9 @@
           updateHUD();
           if (remainingPellets === 0) {
             gameState = "banner";
-            bannerMessage = `Score: ${score} | Lives: ${lives}`;
+            bannerMessage = `LEVEL CLEAR! Score: ${score}`; // Changed message
             bannerStartTime = performance.now();
-            resetGame = false; // Don’t reset score or lives
+            resetGame = false; // Don’t reset score or lives for next level
           }
         }
 
@@ -361,17 +486,15 @@
             gameState = "banner";
             bannerMessage = `GAME OVER | Score: ${score}`;
             bannerStartTime = performance.now();
-            resetGame = true; // Reset everything
+            resetGame = true; // Reset everything for a new game
           } else {
+            // Player hit, but has lives left
             gameState = "banner";
-            bannerMessage = `YOU DIED | Score: ${score}`;
-            let pPos = getRandomCorridorCell();
-            player.x = pPos.x;
-            player.y = pPos.y;
-            player.angle = 0;
-            let gPos = getRandomCorridorCell();
-            ghost.x = gPos.x;
-            ghost.y = gPos.y;
+            bannerMessage = `CAUGHT! Lives: ${lives}`; // Changed message
+            bannerStartTime = performance.now();
+            // Reposition player and ghost after a short delay (handled by banner state)
+            // No need to reset score/lives here, just reposition for the current game state
+            resetGame = false;
           }
         }
       }
@@ -379,26 +502,30 @@
       function updateGhost(dt) {
           if (gameState !== "playing") return;
 
-          if (Math.random() < 0.02) ghost.angle = Math.random() * Math.PI * 2;
-          const ghostSpeed = MOVE_SPEED * 0.75;
-          let newX = mod(ghost.x + Math.cos(ghost.angle) * ghostSpeed * dt, MAP_WIDTH);
-          let newY = mod(ghost.y + Math.sin(ghost.angle) * ghostSpeed * dt, MAP_HEIGHT);
+          // Simple random turning behavior
+          if (Math.random() < 0.02) { // Chance to change direction
+             ghost.angle = Math.random() * Math.PI * 2;
+          }
+
+          const ghostSpeed = MOVE_SPEED * 0.75; // Ghost is slightly slower
+          let moveStep = ghostSpeed * dt;
+          let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH);
+          let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT);
+
+          // Check if the next cell is a wall
           if (maze[Math.floor(newY)][Math.floor(newX)]) {
               ghost.x = newX;
               ghost.y = newY;
           } else {
+              // Hit a wall, pick a new random direction immediately
               ghost.angle = Math.random() * Math.PI * 2;
           }
       }
 
+      // ---------------- Sprite Drawing ----------------
       function drawSprites() {
           let spritesToDraw = [];
-
-          // Constants
-          const GAME_WIDTH = 1024;
-          const GAME_HEIGHT = 768;
-          const FOV = Math.PI / 3;
-          const RAY_STEP = 0.05; // Should match your raycasting step size
+          const RAY_STEP = 0.05; // Step for visibility check
 
           // Add pellets
           for (let y = 0; y < MAP_HEIGHT; y++) {
@@ -406,120 +533,13 @@
                   if (pelletMap[y][x] && !pelletMap[y][x].collected) {
                       let spriteX = x + 0.5;
                       let spriteY = y + 0.5;
-
-                      // Calculate wrapped distance to player
-                      let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH);
-                      let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT);
-                      let distance = Math.sqrt(dx * dx + dy * dy);
-
-                      // Angle from player to sprite
-                      let angleToSprite = Math.atan2(dy, dx);
-                      let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
-
-                      // Check if sprite is within field of view
-                      if (Math.abs(relativeAngle) <= FOV / 2) {
-                          // Check if there's a clear path to the sprite
-                          let isVisible = true;
-                          let testX = player.x;
-                          let testY = player.y;
-                          let rayX = testX;
-                          let rayY = testY;
-                          const rayDirX = Math.cos(angleToSprite);
-                          const rayDirY = Math.sin(angleToSprite);
-                          
-                          let distToSprite = distance;
-                          let currentDist = 0;
-                          
-                          while (currentDist < distToSprite && isVisible) {
-                              currentDist += RAY_STEP;
-                              rayX = player.x + rayDirX * currentDist;
-                              rayY = player.y + rayDirY * currentDist;
-                              
-                              let mapX = Math.floor(mod(rayX, MAP_WIDTH));
-                              let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
-                              
-                              // If we hit a wall before reaching the sprite, it's not visible
-                              if (!maze[mapY][mapX]) {
-                                  isVisible = false;
-                              }
-                              
-                              // Stop if we've reached the sprite's position
-                              if (currentDist >= distToSprite) {
-                                  break;
-                              }
-                          }
-
-                          if (isVisible) {
-                              // Project to screen x-coordinate
-                              let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
-
-                              // Calculate screen size based on distance
-                              let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
-                              let spriteSize = 0.5;
-                              let screenSize = (spriteSize * projectionFactor) / distance;
-
-                              spritesToDraw.push({
-                                  screenX: screenX,
-                                  screenSize: screenSize,
-                                  distance: distance,
-                                  image: pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage
-                              });
-                          }
-                      }
+                      processSprite(spriteX, spriteY, pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage, 0.3, spritesToDraw, 'pellet'); // Smaller pellet size
                   }
               }
           }
 
-          // Add ghost (with the same visibility check)
-          let dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH);
-          let dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT);
-          let distance = Math.sqrt(dx * dx + dy * dy);
-          let angleToSprite = Math.atan2(dy, dx);
-          let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
-
-          if (Math.abs(relativeAngle) <= FOV / 2) {
-              let isVisible = true;
-              let testX = player.x;
-              let testY = player.y;
-              let rayX = testX;
-              let rayY = testY;
-              const rayDirX = Math.cos(angleToSprite);
-              const rayDirY = Math.sin(angleToSprite);
-              
-              let distToSprite = distance;
-              let currentDist = 0;
-              
-              while (currentDist < distToSprite && isVisible) {
-                  currentDist += RAY_STEP;
-                  rayX = player.x + rayDirX * currentDist;
-                  rayY = player.y + rayDirY * currentDist;
-                  
-                  let mapX = Math.floor(mod(rayX, MAP_WIDTH));
-                  let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
-                  
-                  if (!maze[mapY][mapX]) {
-                      isVisible = false;
-                  }
-                  
-                  if (currentDist >= distToSprite) {
-                      break;
-                  }
-              }
-
-              if (isVisible) {
-                  let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
-                  let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
-                  let spriteSize = 1.0;
-                  let screenSize = (spriteSize * projectionFactor) / distance;
-
-                  spritesToDraw.push({
-                      screenX: screenX,
-                      screenSize: screenSize,
-                      distance: distance,
-                      image: ghostImage
-                  });
-              }
-          }
+          // Add ghost
+          processSprite(ghost.x, ghost.y, ghostImage, 0.6, spritesToDraw, 'ghost'); // Slightly smaller ghost size
 
           // Sort sprites by decreasing distance (farthest first)
           spritesToDraw.sort((a, b) => b.distance - a.distance);
@@ -529,25 +549,103 @@
               if (sprite.image.complete && sprite.image.naturalWidth !== 0) {
                   let drawX = sprite.screenX - sprite.screenSize / 2;
                   let drawY;
-                  
-                  // Different vertical positioning for pellets vs ghost
+
+                  // Adjust vertical position based on type and distance perspective
+                  const floorLevel = gameHeight / 2; // Horizon line
+                  const perspectiveFactor = gameHeight / (2 * sprite.distance * Math.cos(sprite.relativeAngle)); // Basic perspective scaling
+
                   if (sprite.type === 'pellet') {
-                      const wallBottom = (GAME_HEIGHT / 2) + (GAME_HEIGHT / 2 / sprite.distance);
-                      drawY = wallBottom - sprite.screenSize;
-                  } else {
-                      drawY = GAME_HEIGHT / 2 - sprite.screenSize / 2;
+                      // Place pellets closer to the floor
+                      drawY = floorLevel + perspectiveFactor * 0.2 - sprite.screenSize / 2; // Adjust 0.2 factor as needed
+                  } else { // Ghost
+                      // Place ghost slightly above the floor
+                      drawY = floorLevel + perspectiveFactor * 0.1 - sprite.screenSize / 1.5; // Adjust 0.1 and 1.5 factors
                   }
-                  
+
+                  // Clamp drawY to prevent drawing off-canvas (optional but good practice)
+                  drawY = Math.max(0, Math.min(gameHeight - sprite.screenSize, drawY));
+
                   ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize);
               }
           }
       }
-      
+
+      function processSprite(spriteX, spriteY, image, baseSize, spritesToDraw, type) {
+          const RAY_STEP = 0.05;
+
+          // Calculate wrapped distance and angle to player
+          let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH);
+          let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT);
+          let distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < 0.1) return; // Avoid drawing if too close
+
+          let angleToSprite = Math.atan2(dy, dx);
+          // Calculate angle relative to player's view, normalized between -PI and PI
+          let relativeAngle = mod(angleToSprite - player.angle + Math.PI, 2 * Math.PI) - Math.PI;
+
+          // Check if sprite is within field of view
+          if (Math.abs(relativeAngle) <= FOV / 2 + 0.1) { // Add a small buffer to FOV check
+              // Check line of sight (visibility check)
+              let isVisible = true;
+              const rayDirX = Math.cos(angleToSprite);
+              const rayDirY = Math.sin(angleToSprite);
+              let currentDist = RAY_STEP; // Start check slightly away from player
+
+              while (currentDist < distance) {
+                  let checkX = mod(player.x + rayDirX * currentDist, MAP_WIDTH);
+                  let checkY = mod(player.y + rayDirY * currentDist, MAP_HEIGHT);
+
+                  if (!maze[Math.floor(checkY)][Math.floor(checkX)]) {
+                      isVisible = false;
+                      break; // Hit a wall
+                  }
+                  currentDist += RAY_STEP;
+              }
+
+              if (isVisible) {
+                  // Project sprite onto the screen plane
+                  // Use dynamic gameWidth
+                  const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2);
+
+                  // Calculate screen X coordinate
+                  // Use dynamic gameWidth
+                  let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor;
+
+                  // Calculate screen size (adjust for perspective)
+                  // Use dynamic gameHeight (or width, depending on preference for scaling reference)
+                  let screenSize = (baseSize * projectionFactor) / (distance * Math.cos(relativeAngle)); // Correct for perspective distortion
+
+                  // Add to draw list
+                  spritesToDraw.push({
+                      screenX: screenX,
+                      screenSize: Math.max(1, screenSize), // Ensure minimum size of 1 pixel
+                      distance: distance,
+                      image: image,
+                      type: type, // Store type for vertical positioning
+                      relativeAngle: relativeAngle // Store for perspective calc
+                  });
+              }
+          }
+      }
+
+
       // ---------------- Main Game Loop ----------------
-      let lastTime = performance.now();
+      let lastTime = 0; // Initialize lastTime to 0
       function gameLoop(currentTime) {
+        // Initialize lastTime on the first frame
+        if (lastTime === 0) {
+            lastTime = currentTime;
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
         let dt = (currentTime - lastTime) / 1000;
         lastTime = currentTime;
+
+        // Clamp delta time to prevent large jumps if tab loses focus
+        dt = Math.min(dt, 0.1); // Max delta time of 0.1 seconds (10 FPS equivalent)
+
 
         if (gameState === "playing") {
             updatePlayer(dt);
@@ -555,13 +653,29 @@
         }
 
         castRays();      // Draw walls
-        drawSprites();    // Draw sprites
-        drawMinimap();    // Draw minimap if applicable
+        drawSprites();   // Draw sprites (pellets, ghost)
+        drawMinimap();   // Draw minimap if applicable
 
         if (gameState === "banner") {
           drawBanner(bannerMessage);
-          if (currentTime - bannerStartTime >= 1000) { // 1 second elapsed
-            initGame(resetGame, resetGame);
+          // Banner display duration (e.g., 1.5 seconds)
+          if (currentTime - bannerStartTime >= 1500) {
+            if (resetGame) {
+                // Full reset for Game Over
+                initGame(true, true); // Reset score and lives
+            } else if (lives > 0 && remainingPellets === 0) {
+                // Level Clear: Start next level
+                initGame(false, false); // Keep score and lives
+            } else if (lives > 0) {
+                // Caught, but lives remain: Reposition player/ghost
+                 let pPos = getRandomCorridorCell();
+                 player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2;
+                 let gPos;
+                 do { gPos = getRandomCorridorCell(); } // Ensure ghost doesn't spawn on player
+                 while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y));
+                 ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2;
+            }
+            // Else (shouldn't happen, but safety): just go back to playing
             gameState = "playing";
           }
         }
@@ -572,118 +686,124 @@
       // ---------------- Banner Display ----------------
       function drawBanner(message) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // Semi-transparent black
-        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        // Use dynamic gameWidth and gameHeight
+        ctx.fillRect(0, 0, gameWidth, gameHeight);
         ctx.fillStyle = "white";
-        ctx.font = "48px sans-serif";
+        // Adjust font size based on canvas width for readability
+        const fontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 20)));
+        ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText(message, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        ctx.textBaseline = "middle"; // Center text vertically
+        // Use dynamic gameWidth and gameHeight
+        ctx.fillText(message, gameWidth / 2, gameHeight / 2);
       }
 
       // ---------------- Optional 2D Minimap ----------------
       let showMinimap = false;
       function drawMinimap() {
         if (!showMinimap) return;
-        const scale = 10;
+        // Adjust scale based on canvas size, ensure it doesn't get too big
+        const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; // Max 25% of smaller dimension
+        const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT));
+        const mapOffsetX = 10; // Position from top-left
+        const mapOffsetY = 10; // Position from top-left
+
+        if (scale < 1) return; // Don't draw if too small
+
+        ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; // Semi-transparent background
+        ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4);
+
         for (let y = 0; y < MAP_HEIGHT; y++) {
           for (let x = 0; x < MAP_WIDTH; x++) {
-            ctx.fillStyle = maze[y][x] ? "#777" : "#000";
-            ctx.fillRect(x * scale, y * scale, scale, scale);
-            ctx.strokeStyle = "#222";
-            ctx.strokeRect(x * scale, y * scale, scale, scale);
+            ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; // Lighter corridor, darker wall
+            ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale);
+            // Optional: Draw grid lines
+            // ctx.strokeStyle = "#555";
+            // ctx.strokeRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale);
+
+            // Draw pellets on minimap
             if (pelletMap[y][x] && !pelletMap[y][x].collected) {
-              ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "blue";
+              ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue";
               ctx.fillRect(
-                x * scale + scale / 4,
-                y * scale + scale / 4,
-                scale / 2,
-                scale / 2
+                mapOffsetX + x * scale + scale * 0.3, // Center pellet dot
+                mapOffsetY + y * scale + scale * 0.3,
+                scale * 0.4, // Smaller dot
+                scale * 0.4
               );
             }
           }
         }
+        // Draw Player
         ctx.fillStyle = "yellow";
         ctx.fillRect(
-          player.x * scale - scale / 4,
-          player.y * scale - scale / 4,
-          scale / 2,
-          scale / 2
+          mapOffsetX + player.x * scale - scale * 0.25, // Center player dot
+          mapOffsetY + player.y * scale - scale * 0.25,
+          scale * 0.5,
+          scale * 0.5
         );
+        // Draw Ghost
         ctx.fillStyle = "magenta";
         ctx.fillRect(
-          ghost.x * scale - scale / 4,
-          ghost.y * scale - scale / 4,
-          scale / 2,
-          scale / 2
+          mapOffsetX + ghost.x * scale - scale * 0.25, // Center ghost dot
+          mapOffsetY + ghost.y * scale - scale * 0.25,
+          scale * 0.5,
+          scale * 0.5
         );
       }
 
-      // ---------------- Keyboard Handlers ----------------
+      // ---------------- Input Handlers ----------------
+      // Keyboard Handlers (remain the same)
       window.addEventListener("keydown", (e) => {
         keys[e.key] = true;
         if (e.key === "m" || e.key === "M") showMinimap = !showMinimap;
+        // Prevent default browser behavior for arrow keys if needed
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+            e.preventDefault();
+        }
       });
       window.addEventListener("keyup", (e) => {
         keys[e.key] = false;
       });
 
-      // ---------------- Mobile Control Handlers ----------------
-      // Helper to add event listeners for both touch and mouse events.
+      // Mobile Control Button Handlers (remain the same)
       function addControlListener(buttonId, keyName) {
         const button = document.getElementById(buttonId);
-        // When pressing the button (touchstart or mousedown), set the key true
-        button.addEventListener("touchstart", (e) => {
-          e.preventDefault();
-          keys[keyName] = true;
-        });
-        button.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          keys[keyName] = true;
-        });
-        // When releasing the button, reset the key to false.
-        button.addEventListener("touchend", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        button.addEventListener("mouseup", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        // Also capture touchcancel and mouseleave events.
-        button.addEventListener("touchcancel", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        button.addEventListener("mouseleave", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
+        button.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; }, { passive: false });
+        button.addEventListener("mousedown", (e) => { e.preventDefault(); keys[keyName] = true; });
+        button.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("mouseup", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("touchcancel", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("mouseleave", (e) => { /* Keep pressed if mouse leaves while down? Decide behavior. */ if(e.buttons === 1) return; keys[keyName] = false; });
       }
-
       addControlListener("upControl", "ArrowUp");
-      addControlListener("downControl", "ArrowDown");
+      addControlListener("downControl", "ArrowDown"); // Added listener if you implement backward movement
       addControlListener("leftControl", "ArrowLeft");
       addControlListener("rightControl", "ArrowRight");
 
-      // ---------------- Mobile Swipe Handlers ----------------
+
+      // Mobile Tap/Swipe Handlers (Tap-to-turn logic remains the same)
       let touchStartX = null;
       let touchStartY = null;
-      const swipeThreshold = 5; // Minimum pixels to consider a swipe
+      const swipeThreshold = 10; // Minimum pixels movement to NOT be a tap
 
       canvas.addEventListener("touchstart", (e) => {
         if (e.changedTouches && e.changedTouches.length > 0) {
           touchStartX = e.changedTouches[0].pageX;
           touchStartY = e.changedTouches[0].pageY;
         }
+        e.preventDefault(); // Prevent scrolling/zooming on canvas touch
       }, { passive: false });
 
       canvas.addEventListener("touchend", (e) => {
+        if (touchStartX === null || touchStartY === null) return; // Ensure start data exists
+
         if (e.changedTouches && e.changedTouches.length > 0) {
           const touchEndX = e.changedTouches[0].pageX;
           const touchEndY = e.changedTouches[0].pageY;
           const deltaX = touchEndX - touchStartX;
           const deltaY = touchEndY - touchStartY;
-          // --- START: New Tap-to-Turn Logic ---
-          // Check if it was a tap (minimal movement) rather than a swipe
+
+          // Check if it was a tap (minimal movement)
           if (Math.abs(deltaX) <= swipeThreshold && Math.abs(deltaY) <= swipeThreshold) {
               // Get the canvas position and dimensions on the screen
               const canvasRect = canvas.getBoundingClientRect();
@@ -693,47 +813,44 @@
               // Ensure the tap was within the horizontal bounds of the canvas
               if (tapX >= 0 && tapX <= canvasRect.width) {
                   // Normalize the tap position: -1 (left edge) to +1 (right edge)
-                  // canvasRect.width is used instead of GAME_WIDTH to account for potential CSS scaling
                   const normalizedX = (tapX / canvasRect.width) * 2 - 1;
-
                   // Calculate the turn amount based on normalized position and max angle
-                  // Tapping left (normalizedX < 0) results in negative angle change (turn left)
-                  // Tapping right (normalizedX > 0) results in positive angle change (turn right)
                   const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE;
-
                   // Apply the turn to the player's angle
                   player.angle += turnAmount;
-
-                  // Optional: Keep angle within 0 to 2*PI range (can sometimes help prevent large numbers)
-                  player.angle = mod(player.angle, Math.PI * 2);
+                  player.angle = mod(player.angle, Math.PI * 2); // Keep angle in range
               }
           }
-          // --- END: New Tap-to-Turn Logic ---
+          // --- You could add swipe detection logic here if needed ---
+          // else { // It was likely a swipe
+          //    if (Math.abs(deltaX) > Math.abs(deltaY)) { // Horizontal swipe
+          //       // keys[deltaX > 0 ? 'ArrowRight' : 'ArrowLeft'] = true; // Or trigger turn
+          //    } else { // Vertical swipe
+          //       // keys[deltaY > 0 ? 'ArrowDown' : 'ArrowUp'] = true; // Or trigger move
+          //    }
+          // }
         }
         touchStartX = null;
         touchStartY = null;
+        e.preventDefault();
       }, { passive: false });
 
-      // ---------------- Start the Game Loop ----------------
-      // On mobile we often require a user interaction before starting the game loop.
-      function startGameLoop() {
-        // Remove these listeners once they are used.
-        window.removeEventListener("touchstart", startGameLoop);
-        window.removeEventListener("mousedown", startGameLoop);
-        requestAnimationFrame(gameLoop);
-      }
+      // Prevent context menu on long press (mobile)
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-      // If touch events are supported start the loop after first user interaction.
-      if ("ontouchstart" in window) {
-        window.addEventListener("touchstart", startGameLoop, { once: true });
-        window.addEventListener("mousedown", startGameLoop, { once: true });
-      } else {
-        // Otherwise, start immediately for desktop.
-        requestAnimationFrame(gameLoop);
-      }
 
-      // ---------------- Initialize the Game ----------------
-      initGame();
+      // ---------------- Start the Game ----------------
+
+      // Add the resize event listener
+      window.addEventListener('resize', resizeCanvas);
+
+      // Initial setup
+      resizeCanvas(); // Set initial canvas size
+      initGame();     // Initialize game state
+
+      // Start the game loop
+      requestAnimationFrame(gameLoop);
+
     </script>
   </body>
 </html>
