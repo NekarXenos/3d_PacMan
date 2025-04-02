@@ -98,6 +98,10 @@
       const ghostImage = new Image();
       ghostImage.src = 'images/ghost.png';
 
+      
+      const MAX_TAP_TURN_ANGLE_DEG = 45; // Maximum turn angle in degrees
+      const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180; // Convert to radians
+
       // Game state variables
       let maze = [];
       let pelletMap = [];
@@ -678,16 +682,33 @@
           const touchEndY = e.changedTouches[0].pageY;
           const deltaX = touchEndX - touchStartX;
           const deltaY = touchEndY - touchStartY;
-          if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
-            // Horizontal swipe detected.
-            if (deltaX > 0) {
-              // Swipe right: turn the player right by 30 degrees.
-              player.angle += (30 * Math.PI) / 180;
-            } else {
-              // Swipe left: turn the player left by 30 degrees.
-              player.angle -= (30 * Math.PI) / 180;
-            }
+          // --- START: New Tap-to-Turn Logic ---
+          // Check if it was a tap (minimal movement) rather than a swipe
+          if (Math.abs(deltaX) <= swipeThreshold && Math.abs(deltaY) <= swipeThreshold) {
+              // Get the canvas position and dimensions on the screen
+              const canvasRect = canvas.getBoundingClientRect();
+              // Calculate the tap position relative to the canvas's left edge
+              const tapX = touchEndX - canvasRect.left;
+
+              // Ensure the tap was within the horizontal bounds of the canvas
+              if (tapX >= 0 && tapX <= canvasRect.width) {
+                  // Normalize the tap position: -1 (left edge) to +1 (right edge)
+                  // canvasRect.width is used instead of GAME_WIDTH to account for potential CSS scaling
+                  const normalizedX = (tapX / canvasRect.width) * 2 - 1;
+
+                  // Calculate the turn amount based on normalized position and max angle
+                  // Tapping left (normalizedX < 0) results in negative angle change (turn left)
+                  // Tapping right (normalizedX > 0) results in positive angle change (turn right)
+                  const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE;
+
+                  // Apply the turn to the player's angle
+                  player.angle += turnAmount;
+
+                  // Optional: Keep angle within 0 to 2*PI range (can sometimes help prevent large numbers)
+                  player.angle = mod(player.angle, Math.PI * 2);
+              }
           }
+          // --- END: New Tap-to-Turn Logic ---
         }
         touchStartX = null;
         touchStartY = null;
