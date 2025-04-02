@@ -219,7 +219,9 @@
 
               if (hitBoundary) {
                   // --- CHANGE: Boundary walls are now BLUE ---
-                  wallColor = `rgb(0, 0, ${shade})`; // Blue fading to black
+                  const greenComp = Math.floor(shade * 0.5);
+                  const blueComp = Math.floor(shade * 0.5);
+                  wallColor = `rgb(0, ${greenComp}, ${blueComp})`; // Teal (dark cyan) fading to black
               } else {
                   // Internal walls remain gray
                   wallColor = `rgb(${shade}, ${shade}, ${shade})`; // Gray fading to black
