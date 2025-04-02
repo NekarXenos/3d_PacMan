@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Pac-3d -- Retro Raycaster Maze Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Pac-3d -- Dynamic Resize & Controls</title>
     <style>
       html,
       body {
@@ -12,6 +13,17 @@
         background: black;
         color: white;
         height: 100%;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        /* Prevent text selection globally */
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        /* Prevent pull-to-refresh or overscroll effects */
+        overscroll-behavior: none;
       }
       #hud {
         position: absolute;
@@ -20,55 +32,60 @@
         z-index: 2;
         font-family: sans-serif;
         font-size: 18px;
+        text-shadow: 1px 1px 2px black;
       }
       canvas {
         display: block;
-        margin: 0 auto;
         background: #222;
+        max-width: 100%;
+        max-height: 100%;
+        /* Improve touch responsiveness */
+        touch-action: none;
       }
-      /* Mobile controls container */
+      /* Mobile controls container (Optional - can be removed if canvas controls are sufficient) */
       #mobileControls {
         position: fixed;
-        bottom: 20px;
+        bottom: 15px;
         left: 50%;
         transform: translateX(-50%);
         z-index: 10;
         display: grid;
         grid-template-areas:
-          "up up up"
+          ". up ."
           "left down right";
         grid-gap: 10px;
+        background-color: rgba(0, 0, 0, 0.3);
+        padding: 10px;
+        border-radius: 15px;
+         /* Hide if not needed */
+         /* display: none; */
       }
       #mobileControls button {
         background-color: rgba(255, 255, 255, 0.2);
-        border: none;
+        border: 1px solid rgba(255, 255, 255, 0.4);
         color: white;
-        font-size: 24px;
-        padding: 15px;
+        font-size: 20px;
+        padding: 10px;
         border-radius: 10px;
-        width: 60px;
-        height: 60px;
+        width: 50px;
+        height: 50px;
         outline: none;
         user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
-      #upControl {
-        grid-area: up;
-      }
-      #downControl {
-        grid-area: down;
-      }
-      #leftControl {
-        grid-area: left;
-      }
-      #rightControl {
-        grid-area: right;
-      }
+      #upControl { grid-area: up; }
+      #downControl { grid-area: down; }
+      #leftControl { grid-area: left; }
+      #rightControl { grid-area: right; }
     </style>
   </head>
   <body>
     <div id="hud">Score: 0 | Lives: 1</div>
-    <canvas id="gameCanvas" width="1024" height="768"></canvas>
-    <!-- Mobile Control Buttons -->
+    <canvas id="gameCanvas"></canvas>
+    <!-- Keep mobile controls for now, though canvas controls are primary -->
     <div id="mobileControls">
       <button id="upControl">↑</button>
       <button id="leftControl">←</button>
@@ -80,660 +97,505 @@
       const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
 
-      const GAME_WIDTH = canvas.width;
-      const GAME_HEIGHT = canvas.height;
-      const FOV = Math.PI / 2.5; // 60° field of view.
-      const NUM_RAYS = GAME_WIDTH; // one ray per x-pixel.
-      const MAX_DEPTH = 30; // maximum cast distance
+      let gameWidth;
+      let gameHeight;
+      let numRays;
 
-      const MAP_WIDTH = 10;  // grid cells horizontally
-      const MAP_HEIGHT = 10; // grid cells vertically
+      const FOV = Math.PI / 2.5;
+      const MAX_DEPTH = 30;
+      const MAP_WIDTH = 10;
+      const MAP_HEIGHT = 10;
 
+      // --- Movement & Control Constants ---
+      const MOVE_SPEED = 2.0; // Base forward speed
+      const BOOST_FACTOR = 1.75; // Speed multiplier when boosting
+      const ROT_SPEED = 2.0; // Rotation speed in radians/sec
+      const MAX_TAP_TURN_ANGLE_DEG = 45; // Max instant turn from tap
+      const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180;
+      const TAP_DURATION_THRESHOLD = 200; // ms - Max duration for a tap vs hold
+      const SWIPE_THRESHOLD = 30; // pixels - Min distance for a swipe
+      const CANVAS_SIDE_AREA_RATIO = 0.35; // % of width for left/right tap/hold zones
+      const CANVAS_VERTICAL_AREA_RATIO = 0.25; // % of height for top/bottom tap zones
+
+      // --- Image Assets (Embedded) ---
       const pelletImage = new Image();
+      //pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
       pelletImage.src = 'images/pellet.png';
-
+      
       const redPelletImage = new Image();
+      //redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII=';
       redPelletImage.src = 'images/red_pellet.png';
-
+      
       const ghostImage = new Image();
+      //ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
       ghostImage.src = 'images/ghost.png';
 
-      
-      const MAX_TAP_TURN_ANGLE_DEG = 45; // Maximum turn angle in degrees
-      const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180; // Convert to radians
 
-      // Game state variables
+      // --- Game State ---
       let maze = [];
       let pelletMap = [];
       let player = { x: 1.5, y: 1.5, angle: 0 };
       let ghost = { x: 0, y: 0, angle: 0 };
       let score = 0;
       let lives = 1;
-      let remainingPellets = 0; // Tracks uncollected pellets
-      let gameState = "playing"; // "playing" or "banner"
-      let bannerMessage = ""; // Message to display on banner
-      let bannerStartTime = 0; // Time when banner appears
-      let resetGame = true; // Whether to reset score and lives
+      let remainingPellets = 0;
+      let gameState = "playing";
+      let bannerMessage = "";
+      let bannerStartTime = 0;
+      let resetGame = true;
+      let showMinimap = false;
 
+      // --- Input State ---
       let keys = {};
+      let isBoosting = false; // Keyboard boost flag
+      let downKeyPressedLastFrame = false; // For 180 turn edge detection
+
+      // --- Touch State ---
+      let activeTouch = {
+          id: null,
+          startX: 0,
+          startY: 0,
+          startTime: 0,
+          currentX: 0, // Keep track for potential future use
+          currentY: 0,
+          region: 'none', // 'top', 'bottom', 'left', 'right', 'center', 'none'
+          isHolding: false
+      };
+
 
       // ---------------- Utility Functions ----------------
-      function getRandomInt(min, max) {
-        return Math.floor(Math.random() * (max - min)) + min;
-      }
+      function getRandomInt(min, max) { return Math.floor(Math.random() * (max - min)) + min; }
+      function mod(n, m) { return ((n % m) + m) % m; }
+      function wrappedDiff(a, b, size) { let diff = mod(a - b, size); return diff > size / 2 ? diff - size : diff; }
 
-      function mod(n, m) {
-        return ((n % m) + m) % m;
-      }
-
-      function wrappedDiff(a, b, size) {
-          let diff = ((a - b) % size + size) % size;
-          if (diff > size / 2) diff -= size;
-          return diff;
-      }
-
-      // ---------------- Maze Generation ----------------
+      // ---------------- Maze Generation (No Changes) ----------------
       function generateMaze() {
-        maze = [];
-        for (let y = 0; y < MAP_HEIGHT; y++) {
-          maze[y] = [];
-          for (let x = 0; x < MAP_WIDTH; x++) {
-            maze[y][x] = false;
-          }
-        }
-
-        const startY = getRandomInt(1, MAP_HEIGHT - 1);
-        let curX = 0;
-        let curY = startY;
-        maze[curY][curX] = true;
-
+        maze = []; for (let y = 0; y < MAP_HEIGHT; y++) { maze[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { maze[y][x] = false; } }
+        const startY = getRandomInt(1, MAP_HEIGHT - 1); let curX = 0; let curY = startY; maze[curY][curX] = true;
         while (curX < MAP_WIDTH - 1) {
           let allowed = [];
-          if (curX + 3 <= MAP_WIDTH - 1) {
-            for (let i = 0; i < 2; i++) allowed.push({ dx: 1, dy: 0 });
-          } else {
-            allowed.push({ dx: 1, dy: 0 });
-          }
-          if (curX - 3 >= 1) {
-            for (let i = 0; i < 2; i++) allowed.push({ dx: -1, dy: 0 });
-          }
-          if (curY - 3 >= 1) {
-            for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: -1 });
-          }
-          if (curY + 3 <= MAP_HEIGHT - 2) {
-            for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: 1 });
-          }
-          if (allowed.length === 0) {
-            allowed.push({ dx: 1, dy: 0 });
-          }
+          if (curX + 3 <= MAP_WIDTH - 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 1, dy: 0 }); } else { allowed.push({ dx: 1, dy: 0 }); }
+          if (curX - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: -1, dy: 0 }); }
+          if (curY - 3 >= 1) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: -1 }); }
+          if (curY + 3 <= MAP_HEIGHT - 2) { for (let i = 0; i < 2; i++) allowed.push({ dx: 0, dy: 1 }); }
+          if (allowed.length === 0) { allowed.push({ dx: 1, dy: 0 }); }
           const segDir = allowed[getRandomInt(0, allowed.length)];
-
-          for (let step = 0; step < 3; step++) {
-            curX += segDir.dx;
-            curY += segDir.dy;
-            if (curY < 0) curY = 0;
-            if (curY >= MAP_HEIGHT) curY = MAP_HEIGHT - 1;
-            maze[curY][curX] = true;
-            if (curX >= MAP_WIDTH - 1) break;
-          }
+          for (let step = 0; step < 3; step++) { curX += segDir.dx; curY += segDir.dy; if (curY < 0) curY = 0; if (curY >= MAP_HEIGHT) curY = MAP_HEIGHT - 1; maze[curY][curX] = true; if (curX >= MAP_WIDTH - 1) break; }
         }
-        while (curY < startY) { 
-          curY++;
-          maze[curY][curX] = true;
-        }
-        while (curY > startY) { 
-          curY--;
-          maze[curY][curX] = true;
-        }
-        maze[startY][MAP_WIDTH - 1] = true;
-
-        // Apply symmetry
+        while (curY < startY) { curY++; maze[curY][curX] = true; } while (curY > startY) { curY--; maze[curY][curX] = true; } maze[startY][MAP_WIDTH - 1] = true;
         makeSymmetric();
       }
-
       function makeSymmetric() {
-        const N = MAP_WIDTH; // MAP_WIDTH = MAP_HEIGHT = 10
-        const originalMaze = maze.map(row => row.slice()); // Copy the initial maze
-        for (let y = 0; y < N; y++) {
-          for (let x = 0; x < N; x++) {
-            // Compute the orbit under D4 symmetries
-            const orbitValues = [
-              originalMaze[N - 1 - y][x],      // Vertical mirror
-              originalMaze[N - 1 - x][y]       // 270° rotation
-            ];
-            // Set cell to true if any symmetric counterpart is true
-            const isCorridor = orbitValues.some(val => val);
-            maze[y][x] = isCorridor;
-          }
-        }
+        const N = MAP_WIDTH; const originalMaze = maze.map(row => row.slice());
+        for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { const orbitValues = [originalMaze[N - 1 - y][x], originalMaze[N - 1 - x][y]]; maze[y][x] = orbitValues.some(val => val); } }
       }
 
-      // ---------------- Pellet Setup ----------------
+      // ---------------- Pellet Setup (No Changes) ----------------
       function generatePellets() {
-        pelletMap = [];
-        remainingPellets = 0; // Initialize pellet count
-        for (let y = 0; y < MAP_HEIGHT; y++) {
-          pelletMap[y] = [];
-          for (let x = 0; x < MAP_WIDTH; x++) {
-            if (maze[y][x]) {
-              pelletMap[y][x] = { collected: false, type: "normal" };
-              remainingPellets++; // Increment for each pellet
-            } else {
-              pelletMap[y][x] = null;
-            }
-          }
-        }
-        let redPellets = 0;
-        while (redPellets < 1) {
-          let rx = getRandomInt(0, MAP_WIDTH);
-          let ry = getRandomInt(0, MAP_HEIGHT);
-          if (pelletMap[ry][rx] && pelletMap[ry][rx].type === "normal") {
-            pelletMap[ry][rx].type = "red";
-            redPellets++;
-          }
-        }
+        pelletMap = []; remainingPellets = 0;
+        for (let y = 0; y < MAP_HEIGHT; y++) { pelletMap[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { if (maze[y][x]) { pelletMap[y][x] = { collected: false, type: "normal" }; remainingPellets++; } else { pelletMap[y][x] = null; } } }
+        let redPellets = 0; while (redPellets < 1) { let rx = getRandomInt(0, MAP_WIDTH); let ry = getRandomInt(0, MAP_HEIGHT); if (pelletMap[ry][rx] && pelletMap[ry][rx].type === "normal") { pelletMap[ry][rx].type = "red"; redPellets++; } }
       }
 
       // ---------------- Initialization ----------------
       function initGame(resetScore = true, resetLives = true) {
-        generateMaze();
-        generatePellets();
-        let pPos = getRandomCorridorCell();
-        player.x = pPos.x;
-        player.y = pPos.y;
-        player.angle = 0;
-        let gPos = getRandomCorridorCell();
-        ghost.x = gPos.x;
-        ghost.y = gPos.y;
-        ghost.angle = Math.random() * Math.PI * 2;
-        if (resetScore) score = 0;
-        if (resetLives) lives = 1;
+        generateMaze(); generatePellets();
+        let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2; // Start facing random direction
+        let gPos; do { gPos = getRandomCorridorCell(); } while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y));
+        ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2;
+        if (resetScore) score = 0; if (resetLives) lives = 1;
         updateHUD();
+        // Reset input states
+        keys = {}; isBoosting = false; downKeyPressedLastFrame = false;
+        resetActiveTouch();
+      }
+      function getRandomCorridorCell() { let x, y; do { x = getRandomInt(0, MAP_WIDTH); y = getRandomInt(0, MAP_HEIGHT); } while (!maze[y][x]); return { x: x + 0.5, y: y + 0.5 }; }
+      function updateHUD() { document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`; }
+
+      // ---------------- Canvas Resizing Logic (No Changes) ----------------
+      function resizeCanvas() {
+          const winW = window.innerWidth; const winH = window.innerHeight; const isPortrait = winH > winW;
+          const minRatio = 4 / 3; const maxRatio = 16 / 9;
+          let targetRatio; let availableH = winH;
+          if (isPortrait) { targetRatio = minRatio; availableH = winH * 0.85; } else { const windowRatio = winW / winH; targetRatio = Math.max(minRatio, Math.min(maxRatio, windowRatio)); availableH = winH; }
+          let potentialW = availableH * targetRatio; let potentialH = winW / targetRatio;
+          let newWidth, newHeight;
+          if (potentialW <= winW) { newWidth = potentialW; newHeight = availableH; } else { newWidth = winW; newHeight = potentialH; }
+          newWidth = Math.min(newWidth, winW); newHeight = Math.min(newHeight, winH);
+          canvas.width = Math.floor(newWidth); canvas.height = Math.floor(newHeight);
+          gameWidth = canvas.width; gameHeight = canvas.height; numRays = gameWidth;
       }
 
-      function getRandomCorridorCell() {
-        let x, y;
-        do {
-          x = getRandomInt(0, MAP_WIDTH);
-          y = getRandomInt(0, MAP_HEIGHT);
-        } while (!maze[y][x]);
-        return { x: x + 0.5, y: y + 0.5 };
-      }
-
-      function updateHUD() {
-        document.getElementById("hud").innerText = `Score: ${score} | Lives: ${lives}`;
-      }
-
-      // ---------------- Raycasting Engine ----------------
+      // ---------------- Raycasting Engine (No Changes) ----------------
       function castRays() {
-          ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-          ctx.fillStyle = "#555";
-          ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT / 2);
-          ctx.fillStyle = "#333";
-          ctx.fillRect(0, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT / 2);
-
-          for (let x = 0; x < NUM_RAYS; x++) {
-              const rayAngle = player.angle - FOV / 2 + (x / NUM_RAYS) * FOV;
-              let rayX = player.x;
-              let rayY = player.y;
-              const rayDirX = Math.cos(rayAngle);
-              const rayDirY = Math.sin(rayAngle);
-              let distanceToWall = 0;
-              let hitWall = false;
-              let hitCell = null;
+          ctx.clearRect(0, 0, gameWidth, gameHeight);
+          ctx.fillStyle = "#555"; ctx.fillRect(0, 0, gameWidth, gameHeight / 2);
+          ctx.fillStyle = "#333"; ctx.fillRect(0, gameHeight / 2, gameWidth, gameHeight / 2);
+          for (let x = 0; x < numRays; x++) {
+              const rayAngle = player.angle - FOV / 2 + (x / numRays) * FOV;
+              let rayX = player.x; let rayY = player.y; const rayDirX = Math.cos(rayAngle); const rayDirY = Math.sin(rayAngle);
+              let distanceToWall = 0; let hitWall = false; let hitBoundary = false;
               while (!hitWall && distanceToWall < MAX_DEPTH) {
                   distanceToWall += 0.05;
-                  let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH));
-                  let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
+                  let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH)); let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT));
                   if (!maze[testY][testX]) {
                       hitWall = true;
-                      hitCell = { x: testX, y: testY };
+                      let prevTestX = Math.floor(mod(rayX + rayDirX * (distanceToWall - 0.05), MAP_WIDTH)); let prevTestY = Math.floor(mod(rayY + rayDirY * (distanceToWall - 0.05), MAP_HEIGHT));
+                      if (testX !== prevTestX) { hitBoundary = (testX === 0 || testX === MAP_WIDTH - 1); } else if (testY !== prevTestY) { hitBoundary = (testY === 0 || testY === MAP_HEIGHT - 1); }
                   }
               }
               const correctedDistance = distanceToWall * Math.cos(rayAngle - player.angle);
-              const lineHeight = Math.floor(GAME_HEIGHT / correctedDistance);
-              let wallColor;
-              if (hitCell && (hitCell.x === 0 || hitCell.x === MAP_WIDTH - 1 || hitCell.y === 0 || hitCell.y === MAP_HEIGHT - 1)) {
-                  // Red walls with distance-based fading
-                  let shade = Math.max(0, 255 - correctedDistance * 25);
-                  wallColor = `rgb(${shade}, 0, 0)`; // Fading red
-              } else {
-                  let shade = Math.max(0, 255 - correctedDistance * 25);
-                  wallColor = `rgb(${shade}, ${shade}, ${shade})`; // Fading white/gray
-              }
-              ctx.fillStyle = wallColor;
-              const lineX = x;
-              const lineY = (GAME_HEIGHT - lineHeight) / 2;
-              ctx.fillRect(lineX, lineY, 1, lineHeight);
+              const lineHeight = Math.floor(gameHeight / correctedDistance);
+              let wallColor; let shade = Math.max(0, 255 - correctedDistance * 15);
+              if (hitBoundary) { wallColor = `rgb(${shade}, 0, 0)`; } else { wallColor = `rgb(${shade}, ${shade}, ${shade})`; }
+              ctx.fillStyle = wallColor; const lineX = x; const lineY = (gameHeight - lineHeight) / 2; ctx.fillRect(lineX, lineY, 1, lineHeight);
           }
       }
 
-      // ---------------- Player & Ghost Movement ----------------
-      const MOVE_SPEED = 2.5;
-      const ROT_SPEED = 2.0;
-
+      // ---------------- Player Update (Major Changes) ----------------
       function updatePlayer(dt) {
-        if (gameState !== "playing") return; // Only update during "playing" state
+        if (gameState !== "playing") return;
 
-        // Rotate based on left/right keys
-        if (keys.ArrowLeft) player.angle -= ROT_SPEED * dt;
-        if (keys.ArrowRight) player.angle += ROT_SPEED * dt;
+        let currentRotSpeed = 0;
+        let currentMoveSpeed = MOVE_SPEED;
+        let trigger180Turn = false;
 
-        // Always move forward continuously.
-        let moveStep = MOVE_SPEED * dt;
+        // --- Touch Input (Continuous Hold Actions) ---
+        if (activeTouch.id !== null && activeTouch.isHolding) {
+            switch (activeTouch.region) {
+                case 'left':
+                    currentRotSpeed = -ROT_SPEED;
+                    break;
+                case 'right':
+                    currentRotSpeed = ROT_SPEED;
+                    break;
+                case 'top':
+                    isBoosting = true; // Set boost flag for movement calculation
+                    break;
+                // No continuous action for holding bottom or center
+            }
+        }
+
+        // --- Keyboard Input ---
+        if (keys.ArrowLeft) currentRotSpeed = -ROT_SPEED;
+        if (keys.ArrowRight) currentRotSpeed = ROT_SPEED;
+        if (keys.ArrowUp) isBoosting = true; // Set boost flag
+
+        // Check for 180 turn (Keyboard - Edge Triggered)
+        if (keys.ArrowDown && !downKeyPressedLastFrame) {
+            trigger180Turn = true;
+        }
+        downKeyPressedLastFrame = keys.ArrowDown; // Update for next frame
+
+        // --- Apply Rotation ---
+        if (currentRotSpeed !== 0) {
+            player.angle += currentRotSpeed * dt;
+            player.angle = mod(player.angle, Math.PI * 2);
+        }
+
+        // --- Apply 180 Turn ---
+        if (trigger180Turn) {
+            player.angle = mod(player.angle + Math.PI, Math.PI * 2);
+            // Reset flags that might conflict after turn
+            isBoosting = false;
+            if (activeTouch.id !== null) resetActiveTouch(); // Cancel touch action on turn
+        }
+
+        // --- Apply Movement (Always Forward) ---
+        if (isBoosting) {
+            currentMoveSpeed *= BOOST_FACTOR;
+        }
+        let moveStep = currentMoveSpeed * dt;
         let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
         let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
+
+        // Collision detection
         if (maze[Math.floor(newY)][Math.floor(newX)]) {
             player.x = newX;
             player.y = newY;
+        } else {
+            // Wall Sliding
+            let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
+            if (maze[Math.floor(player.y)][Math.floor(slideX)]) {
+                 player.x = slideX;
+            } else {
+                let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
+                if (maze[Math.floor(slideY)][Math.floor(player.x)]) {
+                    player.y = slideY;
+                }
+            }
         }
 
-        // Pellet collection
-        let cellX = Math.floor(player.x);
-        let cellY = Math.floor(player.y);
-        if (
-          pelletMap[cellY] &&
-          pelletMap[cellY][cellX] &&
-          !showMinimap &&
-          !pelletMap[cellY][cellX].collected
-        ) {
+        // --- Reset boost flag (it's set per frame by input) ---
+        isBoosting = false;
+
+        // --- Pellet Collection & Ghost Collision (No Changes Here) ---
+        let cellX = Math.floor(player.x); let cellY = Math.floor(player.y);
+        if (pelletMap[cellY]?.[cellX] && !showMinimap && !pelletMap[cellY][cellX].collected) {
           pelletMap[cellY][cellX].collected = true;
           if (pelletMap[cellY][cellX].type === "red") lives++;
-          score += 10;
-          remainingPellets--; // Decrease pellet count
-          updateHUD();
-          if (remainingPellets === 0) {
-            gameState = "banner";
-            bannerMessage = `Score: ${score} | Lives: ${lives}`;
-            bannerStartTime = performance.now();
-            resetGame = false; // Don’t reset score or lives
-          }
+          score += 10; remainingPellets--; updateHUD();
+          if (remainingPellets === 0) { gameState = "banner"; bannerMessage = `LEVEL CLEAR! Score: ${score}`; bannerStartTime = performance.now(); resetGame = false; }
         }
-
-        // Ghost collision
-        if (
-          Math.floor(player.x) === Math.floor(ghost.x) &&
-          Math.floor(player.y) === Math.floor(ghost.y)
-        ) {
-          lives--;
-          updateHUD();
-          if (lives <= 0) {
-            gameState = "banner";
-            bannerMessage = `GAME OVER | Score: ${score}`;
-            bannerStartTime = performance.now();
-            resetGame = true; // Reset everything
-          } else {
-            gameState = "banner";
-            bannerMessage = `YOU DIED | Score: ${score}`;
-            let pPos = getRandomCorridorCell();
-            player.x = pPos.x;
-            player.y = pPos.y;
-            player.angle = 0;
-            let gPos = getRandomCorridorCell();
-            ghost.x = gPos.x;
-            ghost.y = gPos.y;
-          }
+        if (Math.floor(player.x) === Math.floor(ghost.x) && Math.floor(player.y) === Math.floor(ghost.y)) {
+          lives--; updateHUD();
+          if (lives <= 0) { gameState = "banner"; bannerMessage = `GAME OVER | Score: ${score}`; bannerStartTime = performance.now(); resetGame = true; } else { gameState = "banner"; bannerMessage = `CAUGHT! Lives: ${lives}`; bannerStartTime = performance.now(); resetGame = false; }
+          // Repositioning happens after banner display in gameLoop
         }
       }
 
+
+      // ---------------- Ghost Update (No Changes) ----------------
       function updateGhost(dt) {
           if (gameState !== "playing") return;
-
-          if (Math.random() < 0.02) ghost.angle = Math.random() * Math.PI * 2;
-          const ghostSpeed = MOVE_SPEED * 0.75;
-          let newX = mod(ghost.x + Math.cos(ghost.angle) * ghostSpeed * dt, MAP_WIDTH);
-          let newY = mod(ghost.y + Math.sin(ghost.angle) * ghostSpeed * dt, MAP_HEIGHT);
-          if (maze[Math.floor(newY)][Math.floor(newX)]) {
-              ghost.x = newX;
-              ghost.y = newY;
-          } else {
-              ghost.angle = Math.random() * Math.PI * 2;
-          }
+          if (Math.random() < 0.02) { ghost.angle = Math.random() * Math.PI * 2; }
+          const ghostSpeed = MOVE_SPEED * 0.75; let moveStep = ghostSpeed * dt;
+          let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH);
+          let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT);
+          if (maze[Math.floor(newY)][Math.floor(newX)]) { ghost.x = newX; ghost.y = newY; } else { ghost.angle = Math.random() * Math.PI * 2; }
       }
 
+      // ---------------- Sprite Drawing (No Changes) ----------------
       function drawSprites() {
           let spritesToDraw = [];
-
-          // Constants
-          const GAME_WIDTH = 1024;
-          const GAME_HEIGHT = 768;
-          const FOV = Math.PI / 3;
-          const RAY_STEP = 0.05; // Should match your raycasting step size
-
-          // Add pellets
-          for (let y = 0; y < MAP_HEIGHT; y++) {
-              for (let x = 0; x < MAP_WIDTH; x++) {
-                  if (pelletMap[y][x] && !pelletMap[y][x].collected) {
-                      let spriteX = x + 0.5;
-                      let spriteY = y + 0.5;
-
-                      // Calculate wrapped distance to player
-                      let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH);
-                      let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT);
-                      let distance = Math.sqrt(dx * dx + dy * dy);
-
-                      // Angle from player to sprite
-                      let angleToSprite = Math.atan2(dy, dx);
-                      let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
-
-                      // Check if sprite is within field of view
-                      if (Math.abs(relativeAngle) <= FOV / 2) {
-                          // Check if there's a clear path to the sprite
-                          let isVisible = true;
-                          let testX = player.x;
-                          let testY = player.y;
-                          let rayX = testX;
-                          let rayY = testY;
-                          const rayDirX = Math.cos(angleToSprite);
-                          const rayDirY = Math.sin(angleToSprite);
-                          
-                          let distToSprite = distance;
-                          let currentDist = 0;
-                          
-                          while (currentDist < distToSprite && isVisible) {
-                              currentDist += RAY_STEP;
-                              rayX = player.x + rayDirX * currentDist;
-                              rayY = player.y + rayDirY * currentDist;
-                              
-                              let mapX = Math.floor(mod(rayX, MAP_WIDTH));
-                              let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
-                              
-                              // If we hit a wall before reaching the sprite, it's not visible
-                              if (!maze[mapY][mapX]) {
-                                  isVisible = false;
-                              }
-                              
-                              // Stop if we've reached the sprite's position
-                              if (currentDist >= distToSprite) {
-                                  break;
-                              }
-                          }
-
-                          if (isVisible) {
-                              // Project to screen x-coordinate
-                              let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
-
-                              // Calculate screen size based on distance
-                              let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
-                              let spriteSize = 0.5;
-                              let screenSize = (spriteSize * projectionFactor) / distance;
-
-                              spritesToDraw.push({
-                                  screenX: screenX,
-                                  screenSize: screenSize,
-                                  distance: distance,
-                                  image: pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage
-                              });
-                          }
-                      }
-                  }
-              }
-          }
-
-          // Add ghost (with the same visibility check)
-          let dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH);
-          let dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT);
-          let distance = Math.sqrt(dx * dx + dy * dy);
-          let angleToSprite = Math.atan2(dy, dx);
-          let relativeAngle = (angleToSprite - player.angle + Math.PI) % (2 * Math.PI) - Math.PI;
-
-          if (Math.abs(relativeAngle) <= FOV / 2) {
-              let isVisible = true;
-              let testX = player.x;
-              let testY = player.y;
-              let rayX = testX;
-              let rayY = testY;
-              const rayDirX = Math.cos(angleToSprite);
-              const rayDirY = Math.sin(angleToSprite);
-              
-              let distToSprite = distance;
-              let currentDist = 0;
-              
-              while (currentDist < distToSprite && isVisible) {
-                  currentDist += RAY_STEP;
-                  rayX = player.x + rayDirX * currentDist;
-                  rayY = player.y + rayDirY * currentDist;
-                  
-                  let mapX = Math.floor(mod(rayX, MAP_WIDTH));
-                  let mapY = Math.floor(mod(rayY, MAP_HEIGHT));
-                  
-                  if (!maze[mapY][mapX]) {
-                      isVisible = false;
-                  }
-                  
-                  if (currentDist >= distToSprite) {
-                      break;
-                  }
-              }
-
-              if (isVisible) {
-                  let screenX = (relativeAngle / (FOV / 2)) * (GAME_WIDTH / 2) + (GAME_WIDTH / 2);
-                  let projectionFactor = GAME_WIDTH / (2 * Math.tan(FOV / 2));
-                  let spriteSize = 1.0;
-                  let screenSize = (spriteSize * projectionFactor) / distance;
-
-                  spritesToDraw.push({
-                      screenX: screenX,
-                      screenSize: screenSize,
-                      distance: distance,
-                      image: ghostImage
-                  });
-              }
-          }
-
-          // Sort sprites by decreasing distance (farthest first)
+          for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { processSprite(x + 0.5, y + 0.5, pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage, 0.3, spritesToDraw, 'pellet'); } } }
+          processSprite(ghost.x, ghost.y, ghostImage, 0.6, spritesToDraw, 'ghost');
           spritesToDraw.sort((a, b) => b.distance - a.distance);
-
-          // Draw sprites
           for (let sprite of spritesToDraw) {
               if (sprite.image.complete && sprite.image.naturalWidth !== 0) {
-                  let drawX = sprite.screenX - sprite.screenSize / 2;
-                  let drawY;
-                  
-                  // Different vertical positioning for pellets vs ghost
-                  if (sprite.type === 'pellet') {
-                      const wallBottom = (GAME_HEIGHT / 2) + (GAME_HEIGHT / 2 / sprite.distance);
-                      drawY = wallBottom - sprite.screenSize;
-                  } else {
-                      drawY = GAME_HEIGHT / 2 - sprite.screenSize / 2;
-                  }
-                  
-                  ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize);
+                  let drawX = sprite.screenX - sprite.screenSize / 2; let drawY;
+                  const floorLevel = gameHeight / 2; const perspectiveFactor = gameHeight / (2 * sprite.distance * Math.cos(sprite.relativeAngle));
+                  if (sprite.type === 'pellet') { drawY = floorLevel + perspectiveFactor * 0.2 - sprite.screenSize / 2; } else { drawY = floorLevel + perspectiveFactor * 0.1 - sprite.screenSize / 1.5; }
+                  drawY = Math.max(0, Math.min(gameHeight - sprite.screenSize, drawY)); ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize);
               }
           }
       }
-      
-      // ---------------- Main Game Loop ----------------
-      let lastTime = performance.now();
+      function processSprite(spriteX, spriteY, image, baseSize, spritesToDraw, type) {
+          const RAY_STEP = 0.05; let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH); let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT); let distance = Math.sqrt(dx * dx + dy * dy); if (distance < 0.1) return;
+          let angleToSprite = Math.atan2(dy, dx); let relativeAngle = mod(angleToSprite - player.angle + Math.PI, 2 * Math.PI) - Math.PI;
+          if (Math.abs(relativeAngle) <= FOV / 2 + 0.1) {
+              let isVisible = true; const rayDirX = Math.cos(angleToSprite); const rayDirY = Math.sin(angleToSprite); let currentDist = RAY_STEP;
+              while (currentDist < distance) { let checkX = mod(player.x + rayDirX * currentDist, MAP_WIDTH); let checkY = mod(player.y + rayDirY * currentDist, MAP_HEIGHT); if (!maze[Math.floor(checkY)][Math.floor(checkX)]) { isVisible = false; break; } currentDist += RAY_STEP; }
+              if (isVisible) {
+                  const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2); let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor; let screenSize = (baseSize * projectionFactor) / (distance * Math.cos(relativeAngle));
+                  spritesToDraw.push({ screenX: screenX, screenSize: Math.max(1, screenSize), distance: distance, image: image, type: type, relativeAngle: relativeAngle });
+              }
+          }
+      }
+
+      // ---------------- Main Game Loop (Minor change for repositioning) ----------------
+      let lastTime = 0;
       function gameLoop(currentTime) {
-        let dt = (currentTime - lastTime) / 1000;
-        lastTime = currentTime;
+          if (lastTime === 0) { lastTime = currentTime; requestAnimationFrame(gameLoop); return; }
+          let dt = (currentTime - lastTime) / 1000; lastTime = currentTime; dt = Math.min(dt, 0.1);
 
-        if (gameState === "playing") {
-            updatePlayer(dt);
-            updateGhost(dt);
-        }
+          if (gameState === "playing") { updatePlayer(dt); updateGhost(dt); }
 
-        castRays();      // Draw walls
-        drawSprites();    // Draw sprites
-        drawMinimap();    // Draw minimap if applicable
+          castRays(); drawSprites(); drawMinimap();
 
-        if (gameState === "banner") {
-          drawBanner(bannerMessage);
-          if (currentTime - bannerStartTime >= 1000) { // 1 second elapsed
-            initGame(resetGame, resetGame);
-            gameState = "playing";
+          if (gameState === "banner") {
+              drawBanner(bannerMessage);
+              if (currentTime - bannerStartTime >= 1500) {
+                  if (resetGame) { initGame(true, true); } // Game Over reset
+                  else if (lives > 0 && remainingPellets === 0) { initGame(false, false); } // Level Clear reset
+                  else if (lives > 0) { // Caught, reposition
+                       let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2;
+                       let gPos; do { gPos = getRandomCorridorCell(); } while (Math.floor(gPos.x) === Math.floor(pPos.x) && Math.floor(gPos.y) === Math.floor(pPos.y));
+                       ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2;
+                  } // Else (lives <= 0 after banner) will be handled by resetGame = true case
+                  gameState = "playing";
+              }
           }
-        }
-
-        requestAnimationFrame(gameLoop);
+          requestAnimationFrame(gameLoop);
       }
 
-      // ---------------- Banner Display ----------------
+      // ---------------- Banner & Minimap Drawing (No Changes) ----------------
       function drawBanner(message) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // Semi-transparent black
-        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        ctx.fillStyle = "white";
-        ctx.font = "48px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(message, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, gameWidth, gameHeight); ctx.fillStyle = "white";
+        const fontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 20))); ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(message, gameWidth / 2, gameHeight / 2);
       }
-
-      // ---------------- Optional 2D Minimap ----------------
-      let showMinimap = false;
       function drawMinimap() {
-        if (!showMinimap) return;
-        const scale = 10;
-        for (let y = 0; y < MAP_HEIGHT; y++) {
-          for (let x = 0; x < MAP_WIDTH; x++) {
-            ctx.fillStyle = maze[y][x] ? "#777" : "#000";
-            ctx.fillRect(x * scale, y * scale, scale, scale);
-            ctx.strokeStyle = "#222";
-            ctx.strokeRect(x * scale, y * scale, scale, scale);
-            if (pelletMap[y][x] && !pelletMap[y][x].collected) {
-              ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "blue";
-              ctx.fillRect(
-                x * scale + scale / 4,
-                y * scale + scale / 4,
-                scale / 2,
-                scale / 2
-              );
-            }
-          }
-        }
-        ctx.fillStyle = "yellow";
-        ctx.fillRect(
-          player.x * scale - scale / 4,
-          player.y * scale - scale / 4,
-          scale / 2,
-          scale / 2
-        );
-        ctx.fillStyle = "magenta";
-        ctx.fillRect(
-          ghost.x * scale - scale / 4,
-          ghost.y * scale - scale / 4,
-          scale / 2,
-          scale / 2
-        );
+        if (!showMinimap) return; const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT)); const mapOffsetX = 10; const mapOffsetY = 10; if (scale < 1) return;
+        ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4);
+        for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale); if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue"; ctx.fillRect(mapOffsetX + x * scale + scale * 0.3, mapOffsetY + y * scale + scale * 0.3, scale * 0.4, scale * 0.4); } } }
+        ctx.fillStyle = "yellow"; ctx.fillRect(mapOffsetX + player.x * scale - scale * 0.25, mapOffsetY + player.y * scale - scale * 0.25, scale * 0.5, scale * 0.5);
+        ctx.fillStyle = "magenta"; ctx.fillRect(mapOffsetX + ghost.x * scale - scale * 0.25, mapOffsetY + ghost.y * scale - scale * 0.25, scale * 0.5, scale * 0.5);
       }
 
-      // ---------------- Keyboard Handlers ----------------
+      // ---------------- Input Handlers (Major Changes) ----------------
+
+      // --- Keyboard Handlers ---
       window.addEventListener("keydown", (e) => {
+        // Don't process keys if a text input is focused, etc.
+        // if (e.target !== document.body && e.target !== canvas) return;
+
         keys[e.key] = true;
         if (e.key === "m" || e.key === "M") showMinimap = !showMinimap;
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
+            e.preventDefault(); // Prevent page scrolling
+        }
       });
       window.addEventListener("keyup", (e) => {
         keys[e.key] = false;
+        if (e.key === 'ArrowDown') {
+            downKeyPressedLastFrame = false; // Ensure flag is reset on keyup too
+        }
       });
 
-      // ---------------- Mobile Control Handlers ----------------
-      // Helper to add event listeners for both touch and mouse events.
+      // --- Mobile Control Button Handlers (Optional - Link to keys state) ---
       function addControlListener(buttonId, keyName) {
         const button = document.getElementById(buttonId);
-        // When pressing the button (touchstart or mousedown), set the key true
-        button.addEventListener("touchstart", (e) => {
-          e.preventDefault();
-          keys[keyName] = true;
-        });
-        button.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          keys[keyName] = true;
-        });
-        // When releasing the button, reset the key to false.
-        button.addEventListener("touchend", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        button.addEventListener("mouseup", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        // Also capture touchcancel and mouseleave events.
-        button.addEventListener("touchcancel", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
-        button.addEventListener("mouseleave", (e) => {
-          e.preventDefault();
-          keys[keyName] = false;
-        });
+        if (!button) return; // Check if element exists
+        button.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; }, { passive: false });
+        button.addEventListener("mousedown", (e) => { e.preventDefault(); keys[keyName] = true; });
+        button.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("mouseup", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("touchcancel", (e) => { e.preventDefault(); keys[keyName] = false; });
+        button.addEventListener("mouseleave", (e) => { if(e.buttons !== 1) keys[keyName] = false; }); // Only release if mouse button is up
       }
-
       addControlListener("upControl", "ArrowUp");
       addControlListener("downControl", "ArrowDown");
       addControlListener("leftControl", "ArrowLeft");
       addControlListener("rightControl", "ArrowRight");
 
-      // ---------------- Mobile Swipe Handlers ----------------
-      let touchStartX = null;
-      let touchStartY = null;
-      const swipeThreshold = 5; // Minimum pixels to consider a swipe
+      // --- Canvas Touch Handlers ---
+      function getTouchRegion(x, y) {
+          const rect = canvas.getBoundingClientRect();
+          const relativeX = x - rect.left;
+          const relativeY = y - rect.top;
+          const canvasW = rect.width; // Use actual displayed width
+          const canvasH = rect.height;
+
+          const sideWidth = canvasW * CANVAS_SIDE_AREA_RATIO;
+          const verticalHeight = canvasH * CANVAS_VERTICAL_AREA_RATIO;
+
+          if (relativeY < verticalHeight) return 'top';
+          if (relativeY > canvasH - verticalHeight) return 'bottom';
+          if (relativeX < sideWidth) return 'left';
+          if (relativeX > canvasW - sideWidth) return 'right';
+          return 'center'; // Or 'none' if center taps should do nothing
+      }
+
+      function resetActiveTouch() {
+          activeTouch.id = null;
+          activeTouch.region = 'none';
+          activeTouch.isHolding = false;
+      }
 
       canvas.addEventListener("touchstart", (e) => {
-        if (e.changedTouches && e.changedTouches.length > 0) {
-          touchStartX = e.changedTouches[0].pageX;
-          touchStartY = e.changedTouches[0].pageY;
-        }
+          e.preventDefault();
+          // Only handle the first touch for simplicity
+          if (activeTouch.id === null && e.changedTouches.length > 0) {
+              const touch = e.changedTouches[0];
+              activeTouch.id = touch.identifier;
+              activeTouch.startX = touch.pageX;
+              activeTouch.startY = touch.pageY;
+              activeTouch.currentX = touch.pageX;
+              activeTouch.currentY = touch.pageY;
+              activeTouch.startTime = performance.now();
+              activeTouch.region = getTouchRegion(touch.clientX, touch.clientY);
+              activeTouch.isHolding = true; // Assume holding initially
+          }
       }, { passive: false });
 
-      canvas.addEventListener("touchend", (e) => {
-        if (e.changedTouches && e.changedTouches.length > 0) {
-          const touchEndX = e.changedTouches[0].pageX;
-          const touchEndY = e.changedTouches[0].pageY;
-          const deltaX = touchEndX - touchStartX;
-          const deltaY = touchEndY - touchStartY;
-          // --- START: New Tap-to-Turn Logic ---
-          // Check if it was a tap (minimal movement) rather than a swipe
-          if (Math.abs(deltaX) <= swipeThreshold && Math.abs(deltaY) <= swipeThreshold) {
-              // Get the canvas position and dimensions on the screen
-              const canvasRect = canvas.getBoundingClientRect();
-              // Calculate the tap position relative to the canvas's left edge
-              const tapX = touchEndX - canvasRect.left;
-
-              // Ensure the tap was within the horizontal bounds of the canvas
-              if (tapX >= 0 && tapX <= canvasRect.width) {
-                  // Normalize the tap position: -1 (left edge) to +1 (right edge)
-                  // canvasRect.width is used instead of GAME_WIDTH to account for potential CSS scaling
-                  const normalizedX = (tapX / canvasRect.width) * 2 - 1;
-
-                  // Calculate the turn amount based on normalized position and max angle
-                  // Tapping left (normalizedX < 0) results in negative angle change (turn left)
-                  // Tapping right (normalizedX > 0) results in positive angle change (turn right)
-                  const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE;
-
-                  // Apply the turn to the player's angle
-                  player.angle += turnAmount;
-
-                  // Optional: Keep angle within 0 to 2*PI range (can sometimes help prevent large numbers)
-                  player.angle = mod(player.angle, Math.PI * 2);
+      canvas.addEventListener("touchmove", (e) => {
+          e.preventDefault();
+          if (activeTouch.id !== null) {
+              for (let i = 0; i < e.changedTouches.length; i++) {
+                  const touch = e.changedTouches[i];
+                  if (touch.identifier === activeTouch.id) {
+                      activeTouch.currentX = touch.pageX;
+                      activeTouch.currentY = touch.pageY;
+                      // Optional: Check if touch moved out of original region and cancel hold?
+                      // const currentRegion = getTouchRegion(touch.clientX, touch.clientY);
+                      // if (currentRegion !== activeTouch.region) {
+                      //     resetActiveTouch();
+                      // }
+                      break;
+                  }
               }
           }
-          // --- END: New Tap-to-Turn Logic ---
-        }
-        touchStartX = null;
-        touchStartY = null;
       }, { passive: false });
 
-      // ---------------- Start the Game Loop ----------------
-      // On mobile we often require a user interaction before starting the game loop.
-      function startGameLoop() {
-        // Remove these listeners once they are used.
-        window.removeEventListener("touchstart", startGameLoop);
-        window.removeEventListener("mousedown", startGameLoop);
-        requestAnimationFrame(gameLoop);
+      function handleTouchEnd(touch) {
+          if (touch.identifier !== activeTouch.id) return; // Not the touch we are tracking
+
+          const touchEndX = touch.pageX;
+          const touchEndY = touch.pageY;
+          const deltaX = touchEndX - activeTouch.startX;
+          const deltaY = touchEndY - activeTouch.startY;
+          const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+          const duration = performance.now() - activeTouch.startTime;
+
+          const region = activeTouch.region; // Use the region determined at touchstart
+
+          // --- Determine Action: Tap, Swipe, or Hold Release ---
+          if (duration < TAP_DURATION_THRESHOLD && distance < SWIPE_THRESHOLD) {
+              // --- TAP ACTION ---
+              if (region === 'bottom') {
+                  // Trigger 180 turn on tap bottom
+                  player.angle = mod(player.angle + Math.PI, Math.PI * 2);
+              } else if (region === 'left' || region === 'right') {
+                  // Original Tap-to-Turn (Instant)
+                  const rect = canvas.getBoundingClientRect();
+                  const tapX = touch.clientX - rect.left;
+                  const normalizedX = (tapX / rect.width) * 2 - 1;
+                  const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE;
+                  player.angle += turnAmount;
+                  player.angle = mod(player.angle, Math.PI * 2);
+              }
+              // No specific TAP action for top or center defined here
+          } else if (distance >= SWIPE_THRESHOLD) {
+               // --- SWIPE ACTION ---
+               // Prioritize vertical swipes for up/down actions
+               if (Math.abs(deltaY) > Math.abs(deltaX)) {
+                   if (deltaY > 0) { // Swipe Down
+                       player.angle = mod(player.angle + Math.PI, Math.PI * 2);
+                   } else { // Swipe Up
+                       // Optional: Trigger a short boost on swipe up?
+                       // isBoosting = true; // Might feel abrupt
+                   }
+               }
+               // Horizontal swipes currently do nothing specific on release
+               // (hold-turning covers continuous horizontal control)
+          }
+          // --- HOLD RELEASE --- (Handled by resetting the activeTouch state)
+
+          resetActiveTouch(); // Reset state after processing touch end
       }
 
-      // If touch events are supported start the loop after first user interaction.
-      if ("ontouchstart" in window) {
-        window.addEventListener("touchstart", startGameLoop, { once: true });
-        window.addEventListener("mousedown", startGameLoop, { once: true });
-      } else {
-        // Otherwise, start immediately for desktop.
-        requestAnimationFrame(gameLoop);
-      }
+      canvas.addEventListener("touchend", (e) => {
+          e.preventDefault();
+          if (activeTouch.id !== null) {
+              for (let i = 0; i < e.changedTouches.length; i++) {
+                  handleTouchEnd(e.changedTouches[i]);
+              }
+          }
+      }, { passive: false });
 
-      // ---------------- Initialize the Game ----------------
+      canvas.addEventListener("touchcancel", (e) => {
+          e.preventDefault();
+           if (activeTouch.id !== null) {
+              for (let i = 0; i < e.changedTouches.length; i++) {
+                  // Treat cancel like touchend for resetting state
+                  if (e.changedTouches[i].identifier === activeTouch.id) {
+                     resetActiveTouch();
+                     break;
+                  }
+              }
+          }
+      }, { passive: false });
+
+      // Prevent context menu on long press
+      canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+      // ---------------- Start the Game ----------------
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
       initGame();
+      requestAnimationFrame(gameLoop);
+
     </script>
   </body>
 </html>
