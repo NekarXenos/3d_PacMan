@@ -110,7 +110,7 @@
       let gameHeight;
       let numRays;
 
-      const FOV = Math.PI / 2.5;
+      const FOV = Math.PI / 1.9; // Math.PI / 2.5; // 2.5 = 72 deg
       const MAX_DEPTH = 30;
       const MAP_WIDTH = 10;
       const MAP_HEIGHT = 10;
@@ -128,11 +128,11 @@
 
       // --- Ghost Warning Constants ---
       const GHOST_WARNING_MAX_DISTANCE = 6.0; // Max distance ghost triggers warning from behind
-      const GHOST_WARNING_PULSE_SPEED = 0.004; // Speed of the red pulse
-      const GHOST_WARNING_MIN_ALPHA = 0.05; // Minimum alpha of the overlay during pulse
-      const GHOST_WARNING_MAX_ALPHA = 0.35; // Maximum alpha of the overlay at peak pulse & closest distance
+      const GHOST_WARNING_PULSE_SPEED = 0.002; // Speed of the red pulse
+      const GHOST_WARNING_MIN_ALPHA = 0.07; // Minimum alpha of the overlay during pulse
+      const GHOST_WARNING_MAX_ALPHA = 0.3; // Maximum alpha of the overlay at peak pulse & closest distance
 
-      // --- Image Assets (Embedded) ---
+      // --- Image Assets (Embedded) -- not anymore :) ---
       const pelletImage = new Image();
       //pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
       pelletImage.src = 'images/pellet.png';
