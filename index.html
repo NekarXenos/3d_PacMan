@@ -97,10 +97,19 @@
       const DEBUG_TEXT_COLOR = 'rgb(0, 255, 0)';
 
       // --- Image Assets (Embedded) ---
-      const pelletImage = new Image(); pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
-      const redPelletImage = new Image(); redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII=';
-      const ghostImage = new Image(); ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
-
+      const pelletImage = new Image(); // (base64 data)
+      //pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
+      pelletImage.src = 'images/pellet.png';
+      
+      const redPelletImage = new Image(); // (base64 data)
+      //redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII=';
+      redPelletImage.src = 'images/red_pellet.png';
+      
+      const ghostImage = new Image(); // (base64 data)
+      //ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
+      ghostImage.src = 'images/ghost.png';
+      
+      
       // --- Game State ---
       let maze = [];
       let pelletMap = [];
