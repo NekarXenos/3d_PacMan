@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Pac-3d -- Updates A-G</title>
+    <title>Pac-3d -- Smarter Ghost</title>
     <style>
       /* CSS remains the same */
       html,
@@ -48,19 +48,19 @@
       let numRays;
 
       // --- Field of View (B) ---
-      const FOV_DEGREES = 90; // Set FOV in degrees
-      const FOV = FOV_DEGREES * (Math.PI / 180); // Convert to radians for calculations
+      const FOV_DEGREES = 90;
+      const FOV = FOV_DEGREES * (Math.PI / 180);
 
       const MAX_DEPTH = 30;
       const MAP_WIDTH = 10;
       const MAP_HEIGHT = 10;
 
       // --- Movement & Control Constants ---
-      const BASE_MOVE_SPEED = 1.3; // (D) Start slower
-      const MAX_MOVE_SPEED = 3.5; // (D) Cap max speed
-      const SPEED_INCREASE_PER_LEVEL = 0.15; // (D) How much speed increases each level
-      const BOOST_FACTOR = 1.75; // Speed multiplier for ArrowUp/TapTop
-      const POWER_MODE_SPEED_FACTOR = 1.5; // (F) Speed multiplier during power mode
+      const BASE_MOVE_SPEED = 1.0;
+      const MAX_MOVE_SPEED = 3.5;
+      const SPEED_INCREASE_PER_LEVEL = 0.15;
+      const BOOST_FACTOR = 1.75;
+      const POWER_MODE_SPEED_FACTOR = 1.5;
       const ROT_SPEED = 2.0;
       const MAX_TAP_TURN_ANGLE_DEG = 45;
       const MAX_TAP_TURN_ANGLE = (MAX_TAP_TURN_ANGLE_DEG * Math.PI) / 180;
@@ -68,13 +68,20 @@
       const SWIPE_THRESHOLD = 30;
       const CANVAS_SIDE_AREA_RATIO = 0.35;
       const CANVAS_VERTICAL_AREA_RATIO = 0.25;
-      const CANVAS_CENTER_AREA_RATIO = 0.2; // (E) Ratio for center tap/hold stop zone (20% around center)
+      const CANVAS_CENTER_AREA_RATIO = 0.2;
+
+      // --- Ghost Constants ---
+      const GHOST_TURN_PROBABILITY = 0.025; // Base chance ghost considers turning each frame
+      const GHOST_BASE_BIAS = 0.10; // Initial probability ghost turns towards player (when turn occurs)
+      const GHOST_BIAS_INCREASE_PER_LEVEL = 0.035; // How much bias increases per level
+      const GHOST_MAX_BIAS_PROBABILITY = 0.80; // Max probability ghost turns towards player
+      const GHOST_TARGET_ANGLE_VARIATION = Math.PI / 6; // +/- randomness when turning towards player (radians)
 
       // --- Ghost Warning Constants (C) ---
-      const GHOST_PROXIMITY_MAX_DISTANCE = 7.0; // Trigger distance for proximity warning
-      const GHOST_PROXIMITY_PULSE_SPEED = 0.005; // Pulse speed of the gradient
-      const GHOST_PROXIMITY_MAX_ALPHA = 0.55; // Max alpha of the gradient center
-      const GHOST_GRADIENT_EDGE_RADIUS_FACTOR = 1.5; // How far the gradient extends (relative to screen height)
+      const GHOST_PROXIMITY_MAX_DISTANCE = 7.0;
+      const GHOST_PROXIMITY_PULSE_SPEED = 0.005;
+      const GHOST_PROXIMITY_MAX_ALPHA = 0.55;
+      const GHOST_GRADIENT_EDGE_RADIUS_FACTOR = 1.5;
 
       // --- Power Pellet Constants ---
       const POWER_MODE_DURATION = 5000;
@@ -87,22 +94,13 @@
       const POWER_MODE_PULSE_COLOR = 'rgb(255, 255, 0)';
       const HUD_COLOR = 'rgb(255, 255, 255)';
       const POWER_BANNER_COLOR = 'rgb(255, 255, 0)';
-      const DEBUG_TEXT_COLOR = 'rgb(0, 255, 0)'; // Green for debug info
+      const DEBUG_TEXT_COLOR = 'rgb(0, 255, 0)';
 
       // --- Image Assets (Embedded) ---
-      const pelletImage = new Image(); // (base64 data)
-      //pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
-      pelletImage.src = 'images/pellet.png';
-      
-      const redPelletImage = new Image(); // (base64 data)
-      //redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII=';
-      redPelletImage.src = 'images/red_pellet.png';
-      
-      const ghostImage = new Image(); // (base64 data)
-      //ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
-      ghostImage.src = 'images/ghost.png';
-      
-      
+      const pelletImage = new Image(); pelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABRSURBVBhXY/iPDTBgYGBgYPBf/+8x/D8fCzAwiAEL/x8MDAxMFISBgeG/ffs2w8jIyAQRBPD///8ZoACU//8/pt///z/DkIGBMRgZGTkAUw0A+a8/U0QKKm0AAAAASUVORK5CYII=';
+      const redPelletImage = new Image(); redPelletImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABMSURBVBhXY/jPwMAgwsDAwMDw3yTC8P9/BgbGyIAE/P//GRgYpgjC////M/z/nxkYGFhYGN79+w8jIyODCCIAnP//M0ABKP///09hYGBkZAAA/1Y/U96uB+gAAAAASUVORK5CYII=';
+      const ghostImage = new Image(); ghostImage.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADdSURBVDhPY/z//z8DNwMDw48GQrC9/v0b////Z8AEwOB/AxgYGBh4DRD/x4aBgeH////MAAbA4H8DGBgYGN4FEvAfGxkYGBgY/v//zAAHwOB/AxgYGBgY3gUS8B8bGfj//zMAA7D4/z8DAwPDf4wAAwPD/v37/w8g8R8+fPgPJIHE//79m4GB4T+IiUEkYDD8Z8AEwOB/AxgYGBgY3gUS8B8bGX78+AEjIyODCCIAnP//M0ABKP///w8DAwMjIyODCCIAnP//M0ABKP///w8DAwMjI4PAfwYA8+EN+1Z0Y8IAAAAASUVORK5CYII=';
+
       // --- Game State ---
       let maze = [];
       let pelletMap = [];
@@ -110,14 +108,14 @@
       let ghost = { x: 0, y: 0, angle: 0 };
       let score = 0;
       let lives = 1;
-      let level = 1; // (D) Current level
+      let level = 1;
       let remainingPellets = 0;
       let gameState = "playing";
       let bannerMessage = "";
       let bannerStartTime = 0;
       let resetGame = true;
       let showMinimap = false;
-      let debugMode = false; // (G) Debug flag
+      let debugMode = false;
 
       // --- Power Mode State ---
       let isPowerModeActive = false;
@@ -126,7 +124,7 @@
 
       // --- Input State ---
       let keys = {};
-      let isBoosting = false; // Keyboard/Tap-Top boost
+      let isBoosting = false;
       let downKeyPressedLastFrame = false;
 
       // --- Touch State ---
@@ -146,24 +144,8 @@
       // ---------------- Pellet Setup (No Changes) ----------------
       function generatePellets() { pelletMap = []; remainingPellets = 0; for (let y = 0; y < MAP_HEIGHT; y++) { pelletMap[y] = []; for (let x = 0; x < MAP_WIDTH; x++) { if (maze[y][x]) { pelletMap[y][x] = { collected: false, type: "normal" }; remainingPellets++; } else { pelletMap[y][x] = null; } } } let redPellets = 0; while (redPellets < 1) { let rx = getRandomInt(0, MAP_WIDTH); let ry = getRandomInt(0, MAP_HEIGHT); if (pelletMap[ry]?.[rx] && pelletMap[ry][rx].type === "normal") { pelletMap[ry][rx].type = "red"; redPellets++; } } }
 
-      // ---------------- Initialization (Handle Level) ----------------
-      function initGame(keepScoreAndLives = false) {
-          generateMaze();
-          generatePellets();
-          let pPos = getRandomCorridorCell();
-          player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2;
-          respawnGhost(); // Initial ghost placement
-
-          if (!keepScoreAndLives) {
-              score = 0;
-              lives = 1;
-              level = 1; // Reset level only on full game over
-          }
-          // Reset other states regardless
-          keys = {}; isBoosting = false; downKeyPressedLastFrame = false;
-          isPowerModeActive = false; powerModeStartTime = 0; isGhostDead = false;
-          resetActiveTouch();
-      }
+      // ---------------- Initialization (No Changes) ----------------
+      function initGame(keepScoreAndLives = false) { generateMaze(); generatePellets(); let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2; respawnGhost(); if (!keepScoreAndLives) { score = 0; lives = 1; level = 1; } keys = {}; isBoosting = false; downKeyPressedLastFrame = false; isPowerModeActive = false; powerModeStartTime = 0; isGhostDead = false; resetActiveTouch(); }
       function getRandomCorridorCell() { let x, y; do { x = getRandomInt(0, MAP_WIDTH); y = getRandomInt(0, MAP_HEIGHT); } while (!maze[y][x]); return { x: x + 0.5, y: y + 0.5 }; }
 
       // ---------------- Canvas Resizing Logic (No Changes) ----------------
@@ -172,104 +154,49 @@
       // ---------------- Raycasting Engine (No Changes) ----------------
       function castRays(currentTime) { ctx.clearRect(0, 0, gameWidth, gameHeight); let edgeColor = FLOOR_CEILING_EDGE_COLOR; if (isPowerModeActive) { const elapsedPowerTime = currentTime - powerModeStartTime; const pulseFactor = (Math.sin(elapsedPowerTime * POWER_PULSE_SPEED) + 1) / 2; edgeColor = interpolateColor(rgbToHex(FLOOR_CEILING_EDGE_COLOR), rgbToHex(POWER_MODE_PULSE_COLOR), pulseFactor); } const ceilingGradient = ctx.createLinearGradient(0, 0, 0, gameHeight / 2); ceilingGradient.addColorStop(0, edgeColor); ceilingGradient.addColorStop(1, FLOOR_CEILING_HORIZON_COLOR); ctx.fillStyle = ceilingGradient; ctx.fillRect(0, 0, gameWidth, gameHeight / 2); const floorGradient = ctx.createLinearGradient(0, gameHeight / 2, 0, gameHeight); floorGradient.addColorStop(0, FLOOR_CEILING_HORIZON_COLOR); floorGradient.addColorStop(1, edgeColor); ctx.fillStyle = floorGradient; ctx.fillRect(0, gameHeight / 2, gameWidth, gameHeight / 2); for (let x = 0; x < numRays; x++) { const rayAngle = player.angle - FOV / 2 + (x / numRays) * FOV; let rayX = player.x; let rayY = player.y; const rayDirX = Math.cos(rayAngle); const rayDirY = Math.sin(rayAngle); let distanceToWall = 0; let hitWall = false; let hitBoundary = false; while (!hitWall && distanceToWall < MAX_DEPTH) { distanceToWall += 0.05; let testX = Math.floor(mod(rayX + rayDirX * distanceToWall, MAP_WIDTH)); let testY = Math.floor(mod(rayY + rayDirY * distanceToWall, MAP_HEIGHT)); if (!maze[testY][testX]) { hitWall = true; let prevTestX = Math.floor(mod(rayX + rayDirX * (distanceToWall - 0.05), MAP_WIDTH)); let prevTestY = Math.floor(mod(rayY + rayDirY * (distanceToWall - 0.05), MAP_HEIGHT)); if (testX !== prevTestX) { hitBoundary = (testX === 0 || testX === MAP_WIDTH - 1); } else if (testY !== prevTestY) { hitBoundary = (testY === 0 || testY === MAP_HEIGHT - 1); } } } const correctedDistance = distanceToWall * Math.cos(rayAngle - player.angle); const lineHeight = Math.floor(gameHeight / correctedDistance); let wallColor; let shade = Math.max(0, 255 - correctedDistance * 15); if (hitBoundary) { const greenComp = Math.floor(shade * 0.8); const blueComp = Math.floor(shade * 0.8); wallColor = `rgb(0, ${greenComp}, ${blueComp})`; } else { wallColor = `rgb(${shade}, ${shade}, ${shade})`; } ctx.fillStyle = wallColor; const lineX = x; const lineY = (gameHeight - lineHeight) / 2; ctx.fillRect(lineX, lineY, 1, lineHeight); } }
 
-      // ---------------- Player Update (Speed, Stop, Power Boost, Extra Life) ----------------
-      function updatePlayer(dt) {
-          if (gameState !== "playing") return;
+      // ---------------- Player Update (No Changes) ----------------
+      function updatePlayer(dt) { if (gameState !== "playing") return; const currentBaseMoveSpeed = Math.min(MAX_MOVE_SPEED, BASE_MOVE_SPEED + (level - 1) * SPEED_INCREASE_PER_LEVEL); let actualMoveSpeed = currentBaseMoveSpeed; let currentRotSpeed = 0; let trigger180Turn = false; isBoosting = false; if (keys.ArrowLeft && !keys.ArrowRight) currentRotSpeed = -ROT_SPEED; if (keys.ArrowRight && !keys.ArrowLeft) currentRotSpeed = ROT_SPEED; if (keys.ArrowUp && !keys.ArrowDown) isBoosting = true; if (keys.ArrowDown && !downKeyPressedLastFrame && !keys.ArrowUp) { trigger180Turn = true; } downKeyPressedLastFrame = keys.ArrowDown; if (activeTouch.id !== null && activeTouch.isHolding) { switch (activeTouch.region) { case 'left': currentRotSpeed = -ROT_SPEED; break; case 'right': currentRotSpeed = ROT_SPEED; break; case 'top': isBoosting = true; break; } } let stopMovement = false; if ((keys.ArrowLeft && keys.ArrowRight) || (keys.ArrowUp && keys.ArrowDown)) { stopMovement = true; } if (activeTouch.id !== null && activeTouch.isHolding && activeTouch.region === 'center') { stopMovement = true; } if (stopMovement) { actualMoveSpeed = 0; currentRotSpeed = 0; isBoosting = false; } if (currentRotSpeed !== 0) { player.angle += currentRotSpeed * dt; player.angle = mod(player.angle, Math.PI * 2); } if (trigger180Turn) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); isBoosting = false; if (activeTouch.id !== null) resetActiveTouch(); } if (isBoosting) { actualMoveSpeed *= BOOST_FACTOR; } if (isPowerModeActive) { actualMoveSpeed *= POWER_MODE_SPEED_FACTOR; } if (actualMoveSpeed > 0) { let moveStep = actualMoveSpeed * dt; let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH); let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(newY)][Math.floor(newX)]) { player.x = newX; player.y = newY; } else { let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH); if (maze[Math.floor(player.y)][Math.floor(slideX)]) { player.x = slideX; } else { let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(slideY)][Math.floor(player.x)]) { player.y = slideY; } } } } let cellX = Math.floor(player.x); let cellY = Math.floor(player.y); if (pelletMap[cellY]?.[cellX] && !showMinimap && !pelletMap[cellY][cellX].collected) { pelletMap[cellY][cellX].collected = true; if (pelletMap[cellY][cellX].type === "red") { isPowerModeActive = true; powerModeStartTime = performance.now(); isGhostDead = false; } else { score += 10; } remainingPellets--; if (remainingPellets === 0) { gameState = "banner"; bannerMessage = `LEVEL ${level} CLEAR! Score: ${score}`; bannerStartTime = performance.now(); resetGame = false; level++; } } if (!isGhostDead && Math.floor(player.x) === Math.floor(ghost.x) && Math.floor(player.y) === Math.floor(ghost.y)) { if (isPowerModeActive) { score += GHOST_EAT_SCORE; lives++; isGhostDead = true; } else { lives--; if (lives <= 0) { gameState = "banner"; bannerMessage = `GAME OVER | Final Score: ${score}`; bannerStartTime = performance.now(); resetGame = true; } else { gameState = "banner"; bannerMessage = `CAUGHT! Lives: ${lives}`; bannerStartTime = performance.now(); resetGame = false; } } } }
 
-          // --- Calculate current base speed based on level (D) ---
-          const currentBaseMoveSpeed = Math.min(MAX_MOVE_SPEED, BASE_MOVE_SPEED + (level - 1) * SPEED_INCREASE_PER_LEVEL);
-          let actualMoveSpeed = currentBaseMoveSpeed; // Start with level-adjusted speed
-          let currentRotSpeed = 0;
-          let trigger180Turn = false;
-          isBoosting = false; // Reset boost flag each frame
+      // ---------------- Ghost Update (Bias Towards Player) ----------------
+      function updateGhost(dt) {
+          if (isGhostDead || gameState !== "playing") return;
 
-          // --- Input Checks ---
-          // Rotation
-          if (keys.ArrowLeft && !keys.ArrowRight) currentRotSpeed = -ROT_SPEED;
-          if (keys.ArrowRight && !keys.ArrowLeft) currentRotSpeed = ROT_SPEED;
-          // Boosting
-          if (keys.ArrowUp && !keys.ArrowDown) isBoosting = true;
-          // 180 Turn (Keyboard Edge Detection)
-          if (keys.ArrowDown && !downKeyPressedLastFrame && !keys.ArrowUp) { trigger180Turn = true; }
-          downKeyPressedLastFrame = keys.ArrowDown;
+          // --- Decide whether to turn ---
+          if (Math.random() < GHOST_TURN_PROBABILITY) {
+              // Calculate bias probability based on level
+              const currentBiasProbability = Math.min(GHOST_MAX_BIAS_PROBABILITY, GHOST_BASE_BIAS + (level - 1) * GHOST_BIAS_INCREASE_PER_LEVEL);
 
-          // Touch Hold Actions
-          if (activeTouch.id !== null && activeTouch.isHolding) {
-              switch (activeTouch.region) {
-                  case 'left': currentRotSpeed = -ROT_SPEED; break;
-                  case 'right': currentRotSpeed = ROT_SPEED; break;
-                  case 'top': isBoosting = true; break;
-                  // Center hold handled in stop logic below
-              }
-          }
-
-          // --- Stop Logic (E) ---
-          let stopMovement = false;
-          if ((keys.ArrowLeft && keys.ArrowRight) || (keys.ArrowUp && keys.ArrowDown)) {
-              stopMovement = true;
-          }
-          if (activeTouch.id !== null && activeTouch.isHolding && activeTouch.region === 'center') {
-              stopMovement = true;
-          }
-
-          if (stopMovement) {
-              actualMoveSpeed = 0;
-              currentRotSpeed = 0;
-              isBoosting = false; // Cancel boost if stopping
-          }
-
-          // --- Apply Rotation & 180 Turn ---
-          if (currentRotSpeed !== 0) { player.angle += currentRotSpeed * dt; player.angle = mod(player.angle, Math.PI * 2); }
-          if (trigger180Turn) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); isBoosting = false; if (activeTouch.id !== null) resetActiveTouch(); }
-
-          // --- Apply Speed Modifiers ---
-          if (isBoosting) {
-              actualMoveSpeed *= BOOST_FACTOR;
-          }
-          if (isPowerModeActive) { // (F) Power mode speed boost
-              actualMoveSpeed *= POWER_MODE_SPEED_FACTOR;
-          }
-
-          // --- Apply Movement & Collision ---
-          if (actualMoveSpeed > 0) { // Only move if speed > 0
-              let moveStep = actualMoveSpeed * dt;
-              let newX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH);
-              let newY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT);
-              if (maze[Math.floor(newY)][Math.floor(newX)]) { player.x = newX; player.y = newY; } else { let slideX = mod(player.x + Math.cos(player.angle) * moveStep, MAP_WIDTH); if (maze[Math.floor(player.y)][Math.floor(slideX)]) { player.x = slideX; } else { let slideY = mod(player.y + Math.sin(player.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(slideY)][Math.floor(player.x)]) { player.y = slideY; } } }
-          }
-
-          // --- Pellet Collection ---
-          let cellX = Math.floor(player.x); let cellY = Math.floor(player.y);
-          if (pelletMap[cellY]?.[cellX] && !showMinimap && !pelletMap[cellY][cellX].collected) {
-              pelletMap[cellY][cellX].collected = true;
-              if (pelletMap[cellY][cellX].type === "red") { isPowerModeActive = true; powerModeStartTime = performance.now(); isGhostDead = false; }
-              else { score += 10; }
-              remainingPellets--;
-              if (remainingPellets === 0) {
-                  gameState = "banner";
-                  bannerMessage = `LEVEL ${level} CLEAR! Score: ${score}`;
-                  bannerStartTime = performance.now();
-                  resetGame = false; // Don't fully reset, just go to next level
-                  level++; // (D) Increment level
-              }
-          }
-
-          // --- Ghost Collision ---
-          if (!isGhostDead && Math.floor(player.x) === Math.floor(ghost.x) && Math.floor(player.y) === Math.floor(ghost.y)) {
-              if (isPowerModeActive) {
-                  score += GHOST_EAT_SCORE;
-                  lives++; // (A) Extra life!
-                  isGhostDead = true;
+              if (Math.random() < currentBiasProbability) {
+                  // --- Turn towards player (biased) ---
+                  const dx = wrappedDiff(player.x, ghost.x, MAP_WIDTH);
+                  const dy = wrappedDiff(player.y, ghost.y, MAP_HEIGHT);
+                  const angleToPlayer = Math.atan2(dy, dx);
+                  // Add some randomness to the target angle
+                  const randomOffset = (Math.random() - 0.5) * 2 * GHOST_TARGET_ANGLE_VARIATION;
+                  ghost.angle = mod(angleToPlayer + randomOffset, Math.PI * 2);
               } else {
-                  lives--;
-                  if (lives <= 0) { gameState = "banner"; bannerMessage = `GAME OVER | Final Score: ${score}`; bannerStartTime = performance.now(); resetGame = true; } // Full reset on game over
-                  else { gameState = "banner"; bannerMessage = `CAUGHT! Lives: ${lives}`; bannerStartTime = performance.now(); resetGame = false; } // Don't reset level if caught
+                  // --- Turn randomly ---
+                  ghost.angle = Math.random() * Math.PI * 2;
               }
+          }
+
+          // --- Movement ---
+          // Ghost speed could also potentially scale slightly with level, but let's keep it simple for now
+          const ghostSpeed = BASE_MOVE_SPEED * 0.75; // Link to base speed for some scaling
+          let moveStep = ghostSpeed * dt;
+          let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH);
+          let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT);
+
+          // --- Collision with walls ---
+          if (maze[Math.floor(newY)][Math.floor(newX)]) {
+              ghost.x = newX;
+              ghost.y = newY;
+          } else {
+              // Hit a wall, force a turn (could be biased or random based on logic above)
+              // For simplicity here, just force a random turn immediately upon hitting wall
+              ghost.angle = Math.random() * Math.PI * 2;
           }
       }
-
-      // ---------------- Ghost Update (No Changes) ----------------
-      function updateGhost(dt) { if (isGhostDead || gameState !== "playing") return; if (Math.random() < 0.02) { ghost.angle = Math.random() * Math.PI * 2; } const ghostSpeed = BASE_MOVE_SPEED * 0.75; let moveStep = ghostSpeed * dt; let newX = mod(ghost.x + Math.cos(ghost.angle) * moveStep, MAP_WIDTH); let newY = mod(ghost.y + Math.sin(ghost.angle) * moveStep, MAP_HEIGHT); if (maze[Math.floor(newY)][Math.floor(newX)]) { ghost.x = newX; ghost.y = newY; } else { ghost.angle = Math.random() * Math.PI * 2; } }
 
       // ---------------- Ghost Respawn Function (No Changes) ----------------
       function respawnGhost() { let gPos; let pCellX = Math.floor(player.x); let pCellY = Math.floor(player.y); let attempts = 0; do { gPos = getRandomCorridorCell(); attempts++; } while (attempts < 20 && Math.abs(gPos.x - player.x) < 3 && Math.abs(gPos.y - player.y) < 3); ghost.x = gPos.x; ghost.y = gPos.y; ghost.angle = Math.random() * Math.PI * 2; isGhostDead = false; }
@@ -278,79 +205,28 @@
       function drawSprites() { let spritesToDraw = []; for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { processSprite(x + 0.5, y + 0.5, pelletMap[y][x].type === 'red' ? redPelletImage : pelletImage, 0.3, spritesToDraw, 'pellet'); } } } if (!isGhostDead) { processSprite(ghost.x, ghost.y, ghostImage, 0.6, spritesToDraw, 'ghost'); } spritesToDraw.sort((a, b) => b.distance - a.distance); for (let sprite of spritesToDraw) { if (sprite.image.complete && sprite.image.naturalWidth !== 0) { let drawX = sprite.screenX - sprite.screenSize / 2; let drawY; const floorLevel = gameHeight / 2; const perspectiveFactor = gameHeight / (2 * sprite.distance * Math.cos(sprite.relativeAngle)); if (sprite.type === 'pellet') { drawY = floorLevel + perspectiveFactor * 0.2 - sprite.screenSize / 2; } else { drawY = floorLevel + perspectiveFactor * 0.1 - sprite.screenSize / 1.5; } drawY = Math.max(0, Math.min(gameHeight - sprite.screenSize, drawY)); ctx.drawImage(sprite.image, drawX, drawY, sprite.screenSize, sprite.screenSize); } } }
       function processSprite(spriteX, spriteY, image, baseSize, spritesToDraw, type) { const RAY_STEP = 0.05; let dx = wrappedDiff(spriteX, player.x, MAP_WIDTH); let dy = wrappedDiff(spriteY, player.y, MAP_HEIGHT); let distance = Math.sqrt(dx * dx + dy * dy); if (distance < 0.1) return; let angleToSprite = Math.atan2(dy, dx); let relativeAngle = mod(angleToSprite - player.angle + Math.PI, 2 * Math.PI) - Math.PI; if (Math.abs(relativeAngle) <= FOV / 2 + 0.1) { let isVisible = true; const rayDirX = Math.cos(angleToSprite); const rayDirY = Math.sin(angleToSprite); let currentDist = RAY_STEP; while (currentDist < distance) { let checkX = mod(player.x + rayDirX * currentDist, MAP_WIDTH); let checkY = mod(player.y + rayDirY * currentDist, MAP_HEIGHT); if (!maze[Math.floor(checkY)][Math.floor(checkX)]) { isVisible = false; break; } currentDist += RAY_STEP; } if (isVisible) { const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2); let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor; let screenSize = (baseSize * projectionFactor) / (distance * Math.cos(relativeAngle)); spritesToDraw.push({ screenX: screenX, screenSize: Math.max(1, screenSize), distance: distance, image: image, type: type, relativeAngle: relativeAngle }); } } }
 
-      // ---------------- Ghost Proximity Warning (C - New Gradient Logic) ----------------
-      function drawGhostProximityWarning(currentTime) {
-          if (isGhostDead || gameState !== 'playing') return;
+      // ---------------- Ghost Proximity Warning (No Changes) ----------------
+      function drawGhostProximityWarning(currentTime) { if (isGhostDead || gameState !== 'playing') return; const dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH); const dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT); const distance = Math.sqrt(dx * dx + dy * dy); if (distance < GHOST_PROXIMITY_MAX_DISTANCE && distance > 0.1) { const intensity = Math.max(0, Math.min(1, 1.0 - (distance / GHOST_PROXIMITY_MAX_DISTANCE))); const pulseFactor = (Math.sin(currentTime * GHOST_PROXIMITY_PULSE_SPEED) + 1) / 2; const finalAlpha = intensity * pulseFactor * GHOST_PROXIMITY_MAX_ALPHA; const angleToGhost = Math.atan2(dy, dx); const relativeAngle = mod(angleToGhost - player.angle + Math.PI, 2 * Math.PI) - Math.PI; const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2); let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor; const correctedDistance = distance * Math.cos(relativeAngle); const perspectiveFactorY = gameHeight / (2 * correctedDistance); let screenY = gameHeight / 2 + perspectiveFactorY * 0.1; screenX = Math.max(-gameWidth * 0.5, Math.min(gameWidth * 1.5, screenX)); screenY = Math.max(-gameHeight * 0.5, Math.min(gameHeight * 1.5, screenY)); ctx.save(); const gradientRadius = gameHeight * GHOST_GRADIENT_EDGE_RADIUS_FACTOR; const radialGradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, gradientRadius); radialGradient.addColorStop(0, `rgba(200, 0, 0, ${finalAlpha})`); radialGradient.addColorStop(1, `rgba(200, 0, 0, 0)`); ctx.fillStyle = radialGradient; ctx.fillRect(0, 0, gameWidth, gameHeight); ctx.restore(); } }
 
-          const dx = wrappedDiff(ghost.x, player.x, MAP_WIDTH);
-          const dy = wrappedDiff(ghost.y, player.y, MAP_HEIGHT);
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < GHOST_PROXIMITY_MAX_DISTANCE && distance > 0.1) {
-              // Calculate intensity based on inverse distance (0 to 1)
-              const intensity = Math.max(0, Math.min(1, 1.0 - (distance / GHOST_PROXIMITY_MAX_DISTANCE)));
-
-              // Calculate pulsing factor (0 to 1)
-              const pulseFactor = (Math.sin(currentTime * GHOST_PROXIMITY_PULSE_SPEED) + 1) / 2;
-
-              // Calculate final alpha based on intensity and pulse
-              const finalAlpha = intensity * pulseFactor * GHOST_PROXIMITY_MAX_ALPHA;
-
-              // --- Calculate Ghost's Screen Position for Gradient Center ---
-              const angleToGhost = Math.atan2(dy, dx);
-              const relativeAngle = mod(angleToGhost - player.angle + Math.PI, 2 * Math.PI) - Math.PI;
-
-              // Use projection logic similar to sprites (even if outside FOV for gradient center)
-              const projectionFactor = (gameWidth / 2) / Math.tan(FOV / 2);
-              let screenX = (gameWidth / 2) + Math.tan(relativeAngle) * projectionFactor;
-
-              // Basic screenY calculation (less critical for radial gradient center but needed)
-              // This is simplified - doesn't account for exact floor perspective like sprites
-              const correctedDistance = distance * Math.cos(relativeAngle); // Correct distance based on view angle
-              const perspectiveFactorY = gameHeight / (2 * correctedDistance);
-              let screenY = gameHeight / 2 + perspectiveFactorY * 0.1; // Approx vertical center based on distance
-
-              // Clamp screen coordinates to prevent gradient issues if ghost is far behind/side
-              screenX = Math.max(-gameWidth * 0.5, Math.min(gameWidth * 1.5, screenX));
-              screenY = Math.max(-gameHeight * 0.5, Math.min(gameHeight * 1.5, screenY));
-
-              // --- Create and Draw Radial Gradient ---
-              ctx.save();
-              const gradientRadius = gameHeight * GHOST_GRADIENT_EDGE_RADIUS_FACTOR; // Make radius large
-              const radialGradient = ctx.createRadialGradient(
-                  screenX, screenY, 0,       // Inner circle (center of ghost projection, radius 0)
-                  screenX, screenY, gradientRadius // Outer circle (same center, large radius)
-              );
-
-              // Add color stops: Inner is intense red (pulsing alpha), outer is transparent red
-              radialGradient.addColorStop(0, `rgba(200, 0, 0, ${finalAlpha})`);
-              radialGradient.addColorStop(1, `rgba(200, 0, 0, 0)`);
-
-              ctx.fillStyle = radialGradient;
-              ctx.fillRect(0, 0, gameWidth, gameHeight); // Cover the whole screen
-              ctx.restore();
-          }
-      }
-
-
-      // ---------------- HUD, Banners, Debug Drawing ----------------
-
+      // ---------------- HUD, Banners, Debug Drawing (Add Ghost Bias to Debug) ----------------
       function drawHUD() { /* ... same as before ... */ ctx.save(); ctx.font = "18px sans-serif"; ctx.fillStyle = HUD_COLOR; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.shadowColor = "rgba(0, 0, 0, 0.7)"; ctx.shadowBlur = 3; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1; ctx.fillText(`Score: ${score} | Lives: ${lives} | Level: ${level}`, 10, 5); ctx.restore(); }
       function drawPowerModeBanner(currentTime) { /* ... same as before ... */ if (!isPowerModeActive || gameState !== 'playing') return; const elapsed = currentTime - powerModeStartTime; const remainingMillis = Math.max(0, POWER_MODE_DURATION - elapsed); const remainingSeconds = Math.ceil(remainingMillis / 1000); ctx.save(); const bannerFontSize = Math.max(18, Math.min(30, Math.floor(gameWidth / 25))); ctx.font = `bold ${bannerFontSize}px sans-serif`; ctx.fillStyle = POWER_BANNER_COLOR; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.shadowColor = "rgba(0, 0, 0, 0.8)"; ctx.shadowBlur = 4; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2; const bannerText = "Catch the ghost now!"; const bannerY = 5; ctx.fillText(bannerText, gameWidth / 2, bannerY); const timerFontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 15))); ctx.font = `bold ${timerFontSize}px sans-serif`; const timerY = bannerY + bannerFontSize + 5; ctx.fillText(`${remainingSeconds}`, gameWidth / 2, timerY); ctx.restore(); }
       function drawGameEndBanner(message) { /* ... same as before ... */ ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, gameWidth, gameHeight); ctx.fillStyle = "white"; const fontSize = Math.max(24, Math.min(48, Math.floor(gameWidth / 20))); ctx.font = `${fontSize}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.shadowColor = "rgba(0, 0, 0, 0.5)"; ctx.shadowBlur = 5; ctx.fillText(message, gameWidth / 2, gameHeight / 2); ctx.restore(); }
 
-      // (G) Debug Drawing Function
       function drawDebugInfo(currentTime) {
           if (!debugMode) return;
 
           const currentBaseMoveSpeed = Math.min(MAX_MOVE_SPEED, BASE_MOVE_SPEED + (level - 1) * SPEED_INCREASE_PER_LEVEL);
           const powerModeRemaining = isPowerModeActive ? Math.max(0, POWER_MODE_DURATION - (currentTime - powerModeStartTime)) / 1000 : 0;
+          // Calculate current ghost bias for display
+          const currentGhostBias = Math.min(GHOST_MAX_BIAS_PROBABILITY, GHOST_BASE_BIAS + (level - 1) * GHOST_BIAS_INCREASE_PER_LEVEL);
+
 
           ctx.save();
           ctx.font = "12px monospace";
           ctx.fillStyle = DEBUG_TEXT_COLOR;
           ctx.textAlign = "left";
-          ctx.textBaseline = "top";
+          ctx.textBaseline = "bottom"; // Align to bottom for easier placement
           ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
           ctx.shadowBlur = 2;
           ctx.shadowOffsetX = 1;
@@ -363,122 +239,43 @@
               `Player Pos: ${player.x.toFixed(2)}, ${player.y.toFixed(2)}`,
               `Player Angle: ${(player.angle * 180 / Math.PI).toFixed(1)}°`,
               `Ghost Pos: ${ghost.x.toFixed(2)}, ${ghost.y.toFixed(2)}`,
+              `Ghost Angle: ${(ghost.angle * 180 / Math.PI).toFixed(1)}°`,
+              `Ghost Bias Prob: ${currentGhostBias.toFixed(2)}`, // Added bias info
               `Ghost Dead: ${isGhostDead}`,
               `Power Mode: ${isPowerModeActive} (${powerModeRemaining.toFixed(1)}s)`,
               `Touch Region: ${activeTouch.region} (Holding: ${activeTouch.isHolding})`,
               `Keys: ${Object.keys(keys).filter(k => keys[k]).join(', ')}`
           ];
 
-          let yPos = gameHeight - (lines.length * 14) - 5; // Start from bottom
-          lines.forEach(line => {
+          let yPos = gameHeight - 5; // Start near bottom
+          lines.reverse().forEach(line => { // Draw from bottom up
               ctx.fillText(line, 5, yPos);
-              yPos += 14;
+              yPos -= 14;
           });
 
           ctx.restore();
       }
 
-      // ---------------- Main Game Loop ----------------
+      // ---------------- Main Game Loop (No Changes) ----------------
       let lastTime = 0;
-      function gameLoop(currentTime) {
-          if (!lastTime) lastTime = currentTime;
-          let dt = (currentTime - lastTime) / 1000;
-          lastTime = currentTime;
-          dt = Math.min(dt, 0.1);
+      function gameLoop(currentTime) { if (!lastTime) lastTime = currentTime; let dt = (currentTime - lastTime) / 1000; lastTime = currentTime; dt = Math.min(dt, 0.1); if (isPowerModeActive && (currentTime - powerModeStartTime >= POWER_MODE_DURATION)) { isPowerModeActive = false; if (isGhostDead) { respawnGhost(); } } if (gameState === "playing") { updatePlayer(dt); updateGhost(dt); } castRays(currentTime); drawSprites(); drawGhostProximityWarning(currentTime); drawMinimap(); drawHUD(); drawPowerModeBanner(currentTime); drawDebugInfo(currentTime); if (gameState === "banner") { drawGameEndBanner(bannerMessage); if (currentTime - bannerStartTime >= 1500) { if (resetGame) { initGame(false); } else if (lives > 0 && remainingPellets === 0) { initGame(true); } else if (lives > 0) { let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2; respawnGhost(); } gameState = "playing"; } } requestAnimationFrame(gameLoop); }
 
-          // --- Power Mode Timeout Check ---
-          if (isPowerModeActive && (currentTime - powerModeStartTime >= POWER_MODE_DURATION)) {
-              isPowerModeActive = false;
-              if (isGhostDead) { respawnGhost(); }
-          }
+      // ---------------- Minimap Drawing (No Changes) ----------------
+      function drawMinimap() { if (!showMinimap) return; const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT)); const mapOffsetX = 10; const mapOffsetY = 30; if (scale < 1) return; ctx.save(); ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4); for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale); if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue"; ctx.fillRect(mapOffsetX + x * scale + scale * 0.3, mapOffsetY + y * scale + scale * 0.3, scale * 0.4, scale * 0.4); } } } ctx.fillStyle = "yellow"; ctx.fillRect(mapOffsetX + player.x * scale - scale * 0.25, mapOffsetY + player.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); if (!isGhostDead) { ctx.fillStyle = "magenta"; ctx.fillRect(mapOffsetX + ghost.x * scale - scale * 0.25, mapOffsetY + ghost.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); } ctx.restore(); }
 
-          // --- Updates ---
-          if (gameState === "playing") {
-              updatePlayer(dt);
-              updateGhost(dt);
-          }
-
-          // --- Drawing ---
-          castRays(currentTime);
-          drawSprites();
-          drawGhostProximityWarning(currentTime); // Use new gradient warning
-          drawMinimap();
-          drawHUD();
-          drawPowerModeBanner(currentTime);
-          drawDebugInfo(currentTime); // (G) Draw debug info if enabled
-
-          // --- Game End Banner Logic ---
-          if (gameState === "banner") {
-              drawGameEndBanner(bannerMessage);
-              if (currentTime - bannerStartTime >= 1500) {
-                  if (resetGame) { // Game Over
-                      initGame(false); // Full reset (keeps nothing)
-                  } else if (lives > 0 && remainingPellets === 0) { // Level Clear
-                      initGame(true); // Keep score/lives, level already incremented
-                  } else if (lives > 0) { // Caught, but lives remain
-                       let pPos = getRandomCorridorCell(); player.x = pPos.x; player.y = pPos.y; player.angle = Math.random() * Math.PI * 2;
-                       respawnGhost();
-                  }
-                  gameState = "playing";
-              }
-          }
-          requestAnimationFrame(gameLoop);
-      }
-
-      // ---------------- Minimap Drawing (Adjusted Y offset) ----------------
-      function drawMinimap() { if (!showMinimap) return; const mapAreaSize = Math.min(gameWidth, gameHeight) * 0.25; const scale = Math.floor(mapAreaSize / Math.max(MAP_WIDTH, MAP_HEIGHT)); const mapOffsetX = 10; const mapOffsetY = 30; /* Adjusted Y offset */ if (scale < 1) return; ctx.save(); ctx.fillStyle = "rgba(50, 50, 50, 0.7)"; ctx.fillRect(mapOffsetX - 2, mapOffsetY - 2, MAP_WIDTH * scale + 4, MAP_HEIGHT * scale + 4); for (let y = 0; y < MAP_HEIGHT; y++) { for (let x = 0; x < MAP_WIDTH; x++) { ctx.fillStyle = maze[y][x] ? "#AAA" : "#333"; ctx.fillRect(mapOffsetX + x * scale, mapOffsetY + y * scale, scale, scale); if (pelletMap[y]?.[x] && !pelletMap[y][x].collected) { ctx.fillStyle = pelletMap[y][x].type === "red" ? "red" : "lightblue"; ctx.fillRect(mapOffsetX + x * scale + scale * 0.3, mapOffsetY + y * scale + scale * 0.3, scale * 0.4, scale * 0.4); } } } ctx.fillStyle = "yellow"; ctx.fillRect(mapOffsetX + player.x * scale - scale * 0.25, mapOffsetY + player.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); if (!isGhostDead) { ctx.fillStyle = "magenta"; ctx.fillRect(mapOffsetX + ghost.x * scale - scale * 0.25, mapOffsetY + ghost.y * scale - scale * 0.25, scale * 0.5, scale * 0.5); } ctx.restore(); }
-
-      // ---------------- Input Handlers (Add Debug Toggle, Update Touch Regions) ----------------
+      // ---------------- Input Handlers (No Changes) ----------------
       // --- Keyboard Handlers ---
-      window.addEventListener("keydown", (e) => {
-          keys[e.key] = true;
-          if (e.key === "m" || e.key === "M") showMinimap = !showMinimap;
-          if (e.key === 'd' || e.key === 'D') debugMode = !debugMode; // (G) Toggle debug
-          if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
-              e.preventDefault();
-          }
-      });
-      window.addEventListener("keyup", (e) => {
-          keys[e.key] = false;
-          if (e.key === 'ArrowDown') { downKeyPressedLastFrame = false; }
-      });
+      window.addEventListener("keydown", (e) => { keys[e.key] = true; if (e.key === "m" || e.key === "M") showMinimap = !showMinimap; if (e.key === 'd' || e.key === 'D') debugMode = !debugMode; if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) { e.preventDefault(); } });
+      window.addEventListener("keyup", (e) => { keys[e.key] = false; if (e.key === 'ArrowDown') { downKeyPressedLastFrame = false; } });
       // --- Mobile Control Button Linker ---
       function addControlListener(buttonId, keyName) { const button = document.getElementById(buttonId); if (!button) return; button.addEventListener("touchstart", (e) => { e.preventDefault(); keys[keyName] = true; }, { passive: false }); button.addEventListener("mousedown", (e) => { e.preventDefault(); keys[keyName] = true; }); button.addEventListener("touchend", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("mouseup", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("touchcancel", (e) => { e.preventDefault(); keys[keyName] = false; }); button.addEventListener("mouseleave", (e) => { if(e.buttons !== 1) keys[keyName] = false; }); }
       addControlListener("upControl", "ArrowUp"); addControlListener("downControl", "ArrowDown"); addControlListener("leftControl", "ArrowLeft"); addControlListener("rightControl", "ArrowRight");
-
-      // --- Canvas Touch Handlers (Update getTouchRegion) ---
-      function getTouchRegion(x, y) {
-          const rect = canvas.getBoundingClientRect();
-          const relativeX = x - rect.left;
-          const relativeY = y - rect.top;
-          const canvasW = rect.width;
-          const canvasH = rect.height;
-
-          const sideWidth = canvasW * CANVAS_SIDE_AREA_RATIO;
-          const verticalHeight = canvasH * CANVAS_VERTICAL_AREA_RATIO;
-          // (E) Define center area boundaries
-          const centerLeft = canvasW / 2 - (canvasW * CANVAS_CENTER_AREA_RATIO / 2);
-          const centerRight = canvasW / 2 + (canvasW * CANVAS_CENTER_AREA_RATIO / 2);
-          const centerTop = canvasH / 2 - (canvasH * CANVAS_CENTER_AREA_RATIO / 2);
-          const centerBottom = canvasH / 2 + (canvasH * CANVAS_CENTER_AREA_RATIO / 2);
-
-          // Check center first for stop action
-          if (relativeX >= centerLeft && relativeX <= centerRight &&
-              relativeY >= centerTop && relativeY <= centerBottom) {
-              return 'center';
-          }
-          // Check other regions if not center
-          if (relativeY < verticalHeight) return 'top';
-          if (relativeY > canvasH - verticalHeight) return 'bottom';
-          if (relativeX < sideWidth) return 'left';
-          if (relativeX > canvasW - sideWidth) return 'right';
-
-          return 'none'; // Fallback if somehow outside all defined regions
-      }
+      // --- Canvas Touch Handlers ---
+      function getTouchRegion(x, y) { const rect = canvas.getBoundingClientRect(); const relativeX = x - rect.left; const relativeY = y - rect.top; const canvasW = rect.width; const canvasH = rect.height; const sideWidth = canvasW * CANVAS_SIDE_AREA_RATIO; const verticalHeight = canvasH * CANVAS_VERTICAL_AREA_RATIO; const centerLeft = canvasW / 2 - (canvasW * CANVAS_CENTER_AREA_RATIO / 2); const centerRight = canvasW / 2 + (canvasW * CANVAS_CENTER_AREA_RATIO / 2); const centerTop = canvasH / 2 - (canvasH * CANVAS_CENTER_AREA_RATIO / 2); const centerBottom = canvasH / 2 + (canvasH * CANVAS_CENTER_AREA_RATIO / 2); if (relativeX >= centerLeft && relativeX <= centerRight && relativeY >= centerTop && relativeY <= centerBottom) { return 'center'; } if (relativeY < verticalHeight) return 'top'; if (relativeY > canvasH - verticalHeight) return 'bottom'; if (relativeX < sideWidth) return 'left'; if (relativeX > canvasW - sideWidth) return 'right'; return 'none'; }
       function resetActiveTouch() { activeTouch.id = null; activeTouch.region = 'none'; activeTouch.isHolding = false; }
       canvas.addEventListener("touchstart", (e) => { e.preventDefault(); if (activeTouch.id === null && e.changedTouches.length > 0) { const touch = e.changedTouches[0]; activeTouch.id = touch.identifier; activeTouch.startX = touch.pageX; activeTouch.startY = touch.pageY; activeTouch.currentX = touch.pageX; activeTouch.currentY = touch.pageY; activeTouch.startTime = performance.now(); activeTouch.region = getTouchRegion(touch.clientX, touch.clientY); activeTouch.isHolding = true; } }, { passive: false });
-      canvas.addEventListener("touchmove", (e) => { e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { const touch = e.changedTouches[i]; if (touch.identifier === activeTouch.id) { activeTouch.currentX = touch.pageX; activeTouch.currentY = touch.pageY; /* Optional: Could re-evaluate region on move */ break; } } } }, { passive: false });
-      function handleTouchEnd(touch) { if (touch.identifier !== activeTouch.id) return; const touchEndX = touch.pageX; const touchEndY = touch.pageY; const deltaX = touchEndX - activeTouch.startX; const deltaY = touchEndY - activeTouch.startY; const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY); const duration = performance.now() - activeTouch.startTime; const region = activeTouch.region; if (duration < TAP_DURATION_THRESHOLD && distance < SWIPE_THRESHOLD) { if (region === 'bottom') { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } else if (region === 'left' || region === 'right') { const rect = canvas.getBoundingClientRect(); const tapX = touch.clientX - rect.left; const normalizedX = (tapX / rect.width) * 2 - 1; const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE; player.angle += turnAmount; player.angle = mod(player.angle, Math.PI * 2); } /* No tap action for top or center */ } else if (distance >= SWIPE_THRESHOLD) { if (Math.abs(deltaY) > Math.abs(deltaX)) { if (deltaY > 0) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } /* No swipe up action */ } } resetActiveTouch(); }
+      canvas.addEventListener("touchmove", (e) => { e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { const touch = e.changedTouches[i]; if (touch.identifier === activeTouch.id) { activeTouch.currentX = touch.pageX; activeTouch.currentY = touch.pageY; break; } } } }, { passive: false });
+      function handleTouchEnd(touch) { if (touch.identifier !== activeTouch.id) return; const touchEndX = touch.pageX; const touchEndY = touch.pageY; const deltaX = touchEndX - activeTouch.startX; const deltaY = touchEndY - activeTouch.startY; const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY); const duration = performance.now() - activeTouch.startTime; const region = activeTouch.region; if (duration < TAP_DURATION_THRESHOLD && distance < SWIPE_THRESHOLD) { if (region === 'bottom') { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } else if (region === 'left' || region === 'right') { const rect = canvas.getBoundingClientRect(); const tapX = touch.clientX - rect.left; const normalizedX = (tapX / rect.width) * 2 - 1; const turnAmount = normalizedX * MAX_TAP_TURN_ANGLE; player.angle += turnAmount; player.angle = mod(player.angle, Math.PI * 2); } } else if (distance >= SWIPE_THRESHOLD) { if (Math.abs(deltaY) > Math.abs(deltaX)) { if (deltaY > 0) { player.angle = mod(player.angle + Math.PI, Math.PI * 2); } } } resetActiveTouch(); }
       canvas.addEventListener("touchend", (e) => { e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { handleTouchEnd(e.changedTouches[i]); } } }, { passive: false });
       canvas.addEventListener("touchcancel", (e) => { e.preventDefault(); if (activeTouch.id !== null) { for (let i = 0; i < e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === activeTouch.id) { resetActiveTouch(); break; } } } }, { passive: false });
       canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -486,7 +283,7 @@
       // ---------------- Start the Game ----------------
       window.addEventListener('resize', resizeCanvas);
       resizeCanvas();
-      initGame(false); // Initial game start
+      initGame(false);
       requestAnimationFrame(gameLoop);
 
     </script>
